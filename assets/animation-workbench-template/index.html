@@ -95,6 +95,7 @@
   .prow{display:flex; align-items:center; gap:6px; margin:5px 0;}
   .prow .pname{width:74px; flex:0 0 74px; color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .prow input[type=range]{flex:1; min-width:0; accent-color:var(--accent); height:18px;}
+  .prow input[type=range].overflow{accent-color:#ff7b6b; box-shadow:0 0 0 1px rgba(255,123,107,.45); border-radius:4px;}
   .prow input[type=number]{
     width:56px; flex:0 0 56px; background:#14161b; color:var(--text);
     border:1px solid var(--line); border-radius:4px; padding:2px 4px; font-size:11.5px;
@@ -468,6 +469,7 @@
       <div class="hsec"><h4>◆ 关键帧编辑</h4><ul>
         <li><b>添加</b>：「◇ 全部打关键帧」为所有轨道在播放头处打帧；<em>双击轨道空白处</em>为该轨道插帧</li>
         <li><b>自动打帧</b>：直接拖动左侧参数面板数值，当前时间自动记录关键帧</li>
+        <li><b>参数范围手柄</b>：<em>新增</em>——每个参数的滑杆是常用调节范围（手柄），数值框或按住拖拽可<b>继续超出增减</b>（安全边界内）；超出后滑杆贴边并变红高亮</li>
         <li><b>选中</b>：单击菱形单选；<b>⛶ 框选</b>——在轨道空白处按住拖出矩形框选多帧（<kbd>Shift</kbd> 追加选择）</li>
         <li><b>移动</b>：拖动菱形改时间；框选后拖动任一帧<em>整组同步移动</em></li>
         <li><b>编辑数值</b>：双击菱形打开编辑器（时间 / 数值 / 插值）</li>
