@@ -158,3 +158,15 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 4. **工程持久化**：`serializeProject` 写 `bgColor: '#' + scene.background.getHexString()`；`sanitizeProject` 用 `/^#[0-9a-f]{6}$/i.test` 校验（非法回退默认）；`applyProjectData` 调 `setBackgroundColor(p.bgColor)`（随自动保存/刷新/打开工程恢复）；`newProject` 复位默认。网格按钮、背景色互不耦合——纯色抠像时用户自己关网格。
 5. **验证（像素采样）**：WebGL canvas 不能直接 `getContext('2d')`，用临时 2d canvas `drawImage` 拷贝后再 `getImageData` 取像素（`preserveDrawingBuffer:true` 保证 toDataURL/drawImage 可用）。采样点取 **canvas 左上角 (8,8)**——场景内容（液柱/网格/扫描面）在画面中部，角落必是纯背景。验证断言：默认 `[11,21,38]`、纯黑 `[0,0,0]`（容差 ±60）、纯白 `[255,255,255]`（±60）、纯绿 `#00b140 → [0,177,64]`（±55）、自定义红 `[255,0,0]`（±55）。切换后 `waitForTimeout(500)` 等渲染。注意 `file://` 协议下 ES module 被 CORS 拦截 app.js 根本不加载——**必须起本地 http server 验证**（`python3 -m http.server <port>`），之前多轮验证都吃过这个亏。
 6. **范围**：背景色是全局设置（非关键帧轨道），随工程保存；预览与导出（WebCodecs 逐帧/MediaRecorder）共用同一 renderer，背景自动进入导出画面，绿幕抠像零额外配置。
+
+## 十六、参数范围手柄（滑杆常用范围 + lo/hi 安全边界，模板已内置）要点
+
+1. **双范围模型**：每个轨道 `min~max` = 滑杆手柄的常用调节范围；`lo~hi` = 数值框 / scrub 拖拽 / 关键帧编辑器 / 工程加载可继续增减的**安全边界**。缺省 `lo/hi` 时回退 `min/max`（不扩展）；seg 枚举轨道（按钮组）不设 lo/hi，天然不可超界（也无 number 输入框）。
+2. **五处 clamp 统一放开**：`commitValue`（数值框/滑杆）、`makeScrub`（scrub 拖拽）、`clampTrack`（同步视角）、`sanitizeProject`（工程加载关键帧值）、kf-editor 的 kf-value。全部写成 `Math.min(tr.hi ?? tr.max, Math.max(tr.lo ?? tr.min, val))`——**用 `??` 回退而不是展开写死**，缺省轨道行为不变。滑杆 input 事件不受影响（range 值天然在 min/max 内）。
+3. **滑杆超界显示**：`syncPanel` 里 range 值同步时手动贴边 `Math.min(tr.max, Math.max(tr.min, val))`（浏览器本就 clamp，但显式写清楚），另加 `classList.toggle('overflow', val < tr.min || val > tr.max)` + CSS `.prow input[type=range].overflow{accent-color:#ff7b6b; box-shadow:...}`——超界时滑杆贴边并变红，提示"数值已超出手柄范围，可从数值框继续增减"。
+4. **安全边界必须按轨道语义显式设定，不能盲目算术扩展**：
+   - 物理参数：工作台流量 `flowMlS` 的 `lo` 必须 >0（v0=Q/area0，负 Q → 负流速 → zAtPhase 算出负 jetLength → 物理全崩）；`frontProgress`（0~1）语义完整，lo/hi 就设 0/1。
+   - shader 数组上限：模板 `lightCount` 的 `hi` 必须 = `MAX_LIGHTS`（GLSL uniform 数组越界读返回 0 不崩但画面错乱），注释写明。
+   - 角度类：rotX/rotY/rotZ/grooveAngle 给 ±540°（多圈），fov 给 5~150（超大广角 OK），距离类给 3 倍左右余量。
+   - 数值框 min/max 属性也换成 lo/hi（`<input type="number" min="${tr.lo ?? tr.min}" max="${tr.hi ?? tr.max}">`），原生 spinner 箭头可走到安全边界。
+5. **验证（Playwright DOM-only）**：数值框输入超 max（如 camX=1000>400）→ `num.value` 保留、`range.value` 贴边 400、range 有 overflow class、时间线 tval 同步；输入超 hi（5000>1200）→ clamp 到 1200；scrub 拖拽（dispatch pointerdown/pointermove/pointerup）→ 值可超 max 继续增；物理极值（width=10/aspect=24/flow=80）→ canvas 重绘 `litPx` 正常、无 pageerror；seg 轨道断言无 number 输入框；localStorage 保存后刷新，超范围关键帧值与 overflow 状态保持。**注意**：物理超范围值必须实测渲染不崩，别只信数值逻辑。
