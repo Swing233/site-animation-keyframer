@@ -179,3 +179,11 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 4. **透明度叠加系数**：液柱玻璃 jetMat 的 `opacity = colors.planes.jet.opacity * (dim ? 0.304 : 1)`（默认 0.92，dim 时降为 0.28 ≈ 0.92×0.304）；cageMat `opacity = colors.lines.cage.opacity * (dim ? 0.333 : (mode === 0 ? 1 : 1.667))`（默认 0.45，玻璃 1×0.45=0.45 / 实心 1.667×0.45=0.75 / dim 0.333×0.45=0.15）；setMode 与 applyDim 都调此公式，**避免**分散修改 cageMat.opacity。solidMat/wireMat 不受 colors 透明度影响（默认固定 dim?0.3:1）——若要支持需额外映射。
 5. **GridHelper 材质**：构造 `new GridHelper(size, div, color1, color2)` 创建**两个** LineBasicMaterial（主线/次色）；`grid.material` 是数组需遍历。透明度统一应用（损失原主/次色层次——可接受）。
 6. **验证（Playwright swiftshader 局限）**：transmission/glass 材质（液柱/cage）在 swiftshader headless 下渲染异常（截图为空背景），回滚到 3acdb77 clean 也复现此问题——**与本功能无关，是 swiftshader + glass 材质渲染限制**。**可靠断言**：网格 LineBasicMaterial 可渲染，改色后底部区域逐像素扫描（宽松判定如 `g>r+15 && g>b+15` 验证绿色，因 ACES tone mapping 后 #00ff00 渲染像素 r 也会被压低）；液柱改色仅断言状态（localStorage colors 字段正确 + 刷新恢复 + 无 JS 错误）。
+
+## 十八、透明 PNG 序列 + MOV 导出 + 移除 WebM（模板已内置）要点
+
+1. **透明 PNG**：renderer 建在 `alpha:true`（`WebGLRenderer({alpha:true, preserveDrawingBuffer:true})`）→ 支持透明背景。导出期间 `scene.background = null` + `renderer.setClearAlpha(0)`，PNG 输出 RGBA（color type 6）带 alpha；`finally` 恢复 `scene.background = savedBg` + `renderer.setClearAlpha(savedClearAlpha)`。**不要只设 clearAlpha**——scene.background 有值时 clearAlpha 被忽略。
+2. **MOV**：mp4-muxer 生成 ISO BMFF（H.264），QuickTime/主流播放器可打开。实现 = 同一 WebCodecs 管线 + `isMov` 参数：文件扩展名 `.mov` + blob type `video/quicktime`。`frameAccurateExport/recordingExport/exportLiveVoice` 都加 `isMov=false` 参数透传 ext。**诚实文案**：UI 标"MOV（H.264，兼容容器）"，不做 ProRes/Animation 编码（Web 端无此 muxer）。
+3. **移除 WebM**：UI `exp-format` 删 `webm` 选项；`btn-export` 兜底 `if (!MP4_OK && value==='mp4') value='mov'`；`exp-start` 分支改 `mp4||mov`；内部 `wantWebm`/pickVideoMime/loadMuxerLib(MUXER_CDN.webm)/webm-muxer 代码保留为不可达兜底（不删以免动面大，但 UI 不再暴露）。
+4. **面板联动**：`exp-format` change → `exp-mix-row`（mp4/mov + 有音频时显示）、`exp-alpha-row`（仅 png 显示）；`btn-export` 打开时同样同步。
+5. **验证（Playwright + 下载文件解析）**：`page.waitForEvent('download')` + `saveAs` 捕获导出文件。PNG 透明验证：python `zipfile` 解 ZIP → 手工解析 PNG（IHDR color type 6=RGBA → zlib 解 IDAT → **逐行 unfilter**（filter byte + Paeth 等 5 种滤波）→ 读像素）——断言四角 alpha=0 且 t=1s 帧中心（液柱）alpha>200；**注意** t=0 帧液柱未生长（frontProgress=0），中心也是透明，取中间帧断言。MOV 验证：文件名 `.mov` + 前 8 字节 `000000xx ftyp`（ISO BMFF）。Playwright `selectOption` 要求元素可见（export-modal 需先打开）。
