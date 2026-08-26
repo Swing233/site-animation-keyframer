@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<link rel="icon" href="data:,"/>
+<title>Glitter Path · 沟槽反射亮线 — 三维动画工作台</title>
+<style>
+  :root{
+    --bg:#17181d; --panel:#1f2127; --panel2:#262932; --line:#333743;
+    --text:#d7dae2; --dim:#8a8f9c; --accent:#f2a83b; --accent2:#e8c37a;
+    --blue:#5aa2f0; --grey:#9aa0ad; --danger:#e5645f;
+    --names-w:196px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg); color:var(--text); overflow:hidden;
+    font:13px/1.5 "PingFang SC","Microsoft YaHei",-apple-system,"Segoe UI",sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #app{display:flex; flex-direction:column; height:100vh;}
+
+  /* ---------- 顶栏 ---------- */
+  #topbar{
+    height:46px; flex:0 0 46px; display:flex; align-items:center; gap:10px;
+    padding:0 14px; background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  #topbar .logo{
+    font-weight:700; font-size:14px; letter-spacing:.5px;
+    background:linear-gradient(90deg,#ffd98a,#f2a83b);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    white-space:nowrap;
+  }
+  #topbar .sep{width:1px; height:22px; background:var(--line);}
+  #topbar select{
+    height:30px; padding:0 6px; font-size:12px; color:var(--text);
+    background:var(--panel2); border:1px solid var(--line); border-radius:6px; cursor:pointer; white-space:nowrap;
+  }
+  #topbar select:hover{border-color:var(--accent);}
+  #topbar input[type=color]{
+    width:34px; height:30px; padding:2px; border:1px solid var(--line); border-radius:6px;
+    background:var(--panel2); cursor:pointer;
+  }
+  #topbar input[type=color]:hover{border-color:var(--accent);}
+  .tbtn{
+    display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 12px;
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:6px; cursor:pointer; font-size:12.5px; white-space:nowrap;
+  }
+  .tbtn:hover{border-color:var(--accent); color:#fff;}
+  .tbtn.primary{background:linear-gradient(180deg,#f6b95a,#e3962b); color:#221a08; font-weight:600; border-color:#c77f1f;}
+  .tbtn.primary:hover{filter:brightness(1.08);}
+  .tbtn.on{border-color:var(--accent); color:var(--accent2); box-shadow:inset 0 0 0 1px var(--accent);}
+  .tbtn:disabled{opacity:.38; cursor:not-allowed; border-color:var(--line); color:#5a6274;}
+  #topbar .spacer{flex:1;}
+  #topbar .hint{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+
+  /* ---------- 主区 ---------- */
+  #main{flex:1; display:flex; min-height:0;}
+  #viewport-wrap{flex:1; position:relative; min-width:0; background:radial-gradient(120% 100% at 50% 20%, #10131c 0%, #05070d 70%);}
+  #viewport{position:absolute; inset:0;}
+  #viewport canvas{display:block;}
+  #view-badge{
+    position:absolute; left:12px; top:10px; padding:4px 10px; border-radius:5px;
+    background:rgba(20,22,28,.72); border:1px solid var(--line); font-size:12px; color:var(--accent2);
+    pointer-events:none; backdrop-filter:blur(4px);
+  }
+
+  /* 导出画幅安全框：预览中显示最终输出视频的取景范围（DOM overlay，不进入导出画面） */
+  #safe-frame{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    border:1.5px dashed rgba(246,185,90,.55); border-radius:3px;
+    box-sizing:border-box; pointer-events:none; z-index:6;
+    transition:opacity .25s;
+  }
+  #safe-frame.hidden{opacity:0;}
+  #safe-frame span{
+    position:absolute; top:-23px; left:0; padding:2px 7px; border-radius:4px;
+    background:rgba(10,12,18,.75); border:1px solid rgba(246,185,90,.35);
+    color:rgba(246,185,90,.9); font-size:11px; letter-spacing:.4px;
+    font-family:"SF Mono",Consolas,monospace; white-space:nowrap;
+  }
+
+  /* ---------- 参数面板 ---------- */
+  #panel{
+    width:300px; flex:0 0 300px; background:var(--panel); border-left:1px solid var(--line);
+    overflow-y:auto; padding:10px 12px 30px;
+  }
+  #panel h3{
+    font-size:12px; color:var(--accent2); letter-spacing:2px; margin:14px 0 6px;
+    border-bottom:1px solid var(--line); padding-bottom:4px;
+  }
+  #panel h3:first-child{margin-top:2px;}
+  .prow{display:flex; align-items:center; gap:6px; margin:5px 0;}
+  .prow .pname{width:74px; flex:0 0 74px; color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .prow input[type=range]{flex:1; min-width:0; accent-color:var(--accent); height:18px;}
+  .prow input[type=number]{
+    width:56px; flex:0 0 56px; background:#14161b; color:var(--text);
+    border:1px solid var(--line); border-radius:4px; padding:2px 4px; font-size:11.5px;
+  }
+  .kfbtn{
+    width:20px; height:20px; flex:0 0 20px; border:1px solid var(--line); border-radius:4px;
+    background:var(--panel2); color:#666c7a; cursor:pointer; font-size:11px; line-height:1;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+  .kfbtn:hover{border-color:var(--accent); color:var(--accent2);}
+  .kfbtn.active{background:var(--accent); border-color:var(--accent); color:#221a08; font-weight:700;}
+  .prow.seg .pname{width:74px;}
+  .segbtns{flex:1; display:flex; gap:4px;}
+  .segbtns button{
+    flex:1; height:22px; background:var(--panel2); color:var(--dim); border:1px solid var(--line);
+    border-radius:4px; cursor:pointer; font-size:11.5px;
+  }
+  .segbtns button.on{background:var(--accent); color:#221a08; border-color:var(--accent); font-weight:600;}
+  .chkrow{display:flex; align-items:center; gap:8px; margin:8px 0 2px; color:var(--dim); font-size:12px; cursor:pointer;}
+  .chkrow input{accent-color:var(--accent);}
+
+  /* ---------- 分隔条 ---------- */
+  #splitter{height:5px; flex:0 0 5px; background:var(--line); cursor:row-resize;}
+  #splitter:hover{background:var(--accent);}
+
+  /* ---------- 时间轴 ---------- */
+  #timeline{height:300px; flex:0 0 300px; display:flex; flex-direction:column; background:var(--panel); border-top:1px solid var(--line);}
+  #tl-toolbar{
+    height:38px; flex:0 0 38px; display:flex; align-items:center; gap:6px;
+    padding:0 10px; border-bottom:1px solid var(--line); background:var(--panel);
+  }
+  #tl-toolbar .tbtn{height:26px; padding:0 9px; font-size:12px;}
+  #tl-toolbar .icon-btn{width:28px; padding:0; justify-content:center; font-size:13px;}
+  #time-display{
+    min-width:132px; text-align:center; font-family:"SF Mono",Consolas,monospace; font-size:12px;
+    color:var(--accent2); background:#14161b; border:1px solid var(--line); border-radius:5px; padding:3px 8px;
+  }
+  #tl-toolbar label{color:var(--dim); font-size:11.5px; display:flex; align-items:center; gap:4px; white-space:nowrap;}
+  #tl-toolbar input[type=number]{
+    width:52px; background:#14161b; color:var(--text); border:1px solid var(--line);
+    border-radius:4px; padding:2px 4px; font-size:11.5px;
+  }
+  #tl-toolbar input[type=range]{accent-color:var(--accent); width:90px;}
+  #tl-toolbar .spacer{flex:1;}
+  #tl-toolbar .tl-hint{color:#565c6a; font-size:11px; white-space:nowrap;}
+  #tl-toolbar select{
+    height:26px; padding:0 4px; font-size:12px; color:var(--text);
+    background:var(--panel2); border:1px solid var(--line); border-radius:5px; cursor:pointer;
+  }
+
+  /* ---------- 帮助看板 ---------- */
+  #help-overlay{
+    display:none; position:fixed; inset:0; z-index:200;
+    background:rgba(10,11,14,.72); backdrop-filter:blur(3px);
+    align-items:center; justify-content:center; padding:24px;
+  }
+  #help-overlay .help-card{
+    width:min(900px, 94vw); max-height:86vh; display:flex; flex-direction:column;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 18px 60px rgba(0,0,0,.5); overflow:hidden;
+  }
+  #help-overlay .help-head{
+    display:flex; align-items:center; justify-content:space-between; flex:0 0 auto;
+    padding:14px 18px; border-bottom:1px solid var(--line);
+  }
+  #help-overlay .help-head h3{font-size:15px; color:var(--accent2); letter-spacing:.5px;}
+  #help-overlay .help-head button{
+    height:26px; padding:0 11px; background:var(--panel2); color:var(--dim);
+    border:1px solid var(--line); border-radius:5px; cursor:pointer; font-size:12px;
+  }
+  #help-overlay .help-head button:hover{color:var(--text); border-color:var(--danger);}
+  #help-overlay .help-body{
+    overflow-y:auto; padding:16px 18px; display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(270px, 1fr)); gap:13px;
+    -webkit-user-select:text; user-select:text;
+  }
+  #help-overlay .hsec{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px 14px;}
+  #help-overlay .hsec h4{font-size:12.5px; color:var(--accent); margin-bottom:7px;}
+  #help-overlay .hsec ul{list-style:none;}
+  #help-overlay .hsec li{font-size:12px; color:var(--dim); padding:3px 0; line-height:1.55;}
+  #help-overlay .hsec li b{color:var(--text); font-weight:600;}
+  #help-overlay .hsec li em{color:#8fd0ff; font-style:normal;}
+  #help-overlay kbd{
+    display:inline-block; padding:0 5px; margin:0 1px; font:11px/1.6 ui-monospace,Menlo,monospace;
+    background:#2c303b; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; color:var(--text);
+  }
+
+  #tl-body{flex:1; overflow:auto; position:relative; background:#191b21;}
+  #tl-content{position:relative; min-height:100%;}
+  .tl-row{display:flex; height:26px; border-bottom:1px solid #23262e;}
+  .tl-row.ruler-row{height:30px; position:sticky; top:0; z-index:30; border-bottom:1px solid var(--line);}
+  .tl-corner{
+    position:sticky; left:0; z-index:31; width:var(--names-w); flex:0 0 var(--names-w);
+    background:var(--panel2); border-right:1px solid var(--line);
+    display:flex; align-items:center; padding:0 8px; gap:6px; font-size:11px; color:var(--dim);
+  }
+  .tl-name{
+    position:sticky; left:0; z-index:20; width:var(--names-w); flex:0 0 var(--names-w);
+    background:var(--panel); border-right:1px solid var(--line);
+    display:flex; align-items:center; gap:6px; padding:0 8px; font-size:11.5px;
+  }
+  .tl-name .tlabel{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text);}
+  .tl-name .group-tag{color:#565c6a; font-size:10px;}
+  .tl-name .kfbtn{width:18px; height:18px; flex:0 0 18px; font-size:10px;}
+  .tl-name .tval{
+    font-family:"SF Mono",Consolas,monospace; font-size:10px; color:var(--accent);
+    cursor:ew-resize; user-select:none; touch-action:none; white-space:nowrap;
+    padding:1px 4px; border-radius:3px; flex:0 0 auto;
+  }
+  .tl-name .tval:hover{background:rgba(242,168,59,.14);}
+  .tl-name .tval.scrubbing{background:rgba(242,168,59,.24); outline:1px solid rgba(242,168,59,.5);}
+  .tl-lane{position:relative; flex:1; background:
+    repeating-linear-gradient(90deg, transparent 0, transparent 100%, rgba(255,255,255,.015) 100%);}
+  .tl-row:nth-child(odd) .tl-lane{background-color:rgba(255,255,255,.012);}
+  #ruler{display:block; background:var(--panel2); cursor:ew-resize;}
+
+  /* ---------- 音频口播行 ---------- */
+  .tl-row.audio-row{height:58px; border-bottom:1px solid #23262e; background:rgba(90,162,240,.04);}
+  .tl-row.audio-row:hover{background:rgba(90,162,240,.08);}
+  .tl-row.audio-row .tl-name{background:var(--panel);}
+  .tl-row.audio-row .tl-name .tlabel{color:#8fd0ff;}
+  .tl-row.audio-row .tl-name .audio-dur{color:var(--dim); font-size:10px; font-family:"SF Mono",Consolas,monospace;}
+  #audio-wave-wrap{position:relative; flex:1; cursor:crosshair; overflow:hidden;}
+  #audio-wave{display:block; background:#15181e;}
+  #audio-wave-mask{
+    position:absolute; top:0; left:0; bottom:0; width:0;
+    background:linear-gradient(90deg, rgba(90,162,240,.28), rgba(90,162,240,.10));
+    pointer-events:none; border-right:1px solid rgba(90,162,240,.55);
+  }
+  #audio-wave-empty{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:#565c6a; font-size:11.5px; letter-spacing:.06em; pointer-events:none;
+  }
+  #audio-wave-empty span{margin-left:6px;}
+
+  .diamond{
+    position:absolute; top:50%; width:11px; height:11px; margin:-5.5px 0 0 -5.5px;
+    transform:rotate(45deg); cursor:grab; border:1px solid #0007; z-index:5;
+    background:var(--accent); box-shadow:0 0 3px #0009;
+  }
+  .diamond.linear{background:var(--blue);}
+  .diamond.step{background:var(--grey); border-radius:2px; transform:rotate(0);}
+  .diamond:hover{filter:brightness(1.25);}
+  .diamond.selected{outline:2px solid #fff; outline-offset:1px; z-index:6;}
+  #marquee{
+    position:absolute; z-index:40; display:none; pointer-events:none;
+    background:rgba(90,162,240,.14); border:1px solid #5aa2f0;
+  }
+
+  #playhead{
+    position:absolute; top:0; bottom:0; width:1px; background:#ff5d5d; z-index:25; pointer-events:none;
+  }
+  #playhead::before{
+    content:""; position:absolute; top:0; left:-6px; border:6px solid transparent; border-top:8px solid #ff5d5d;
+  }
+
+  /* 关键帧编辑弹窗 */
+  #kf-editor{
+    position:absolute; z-index:100; width:210px; background:var(--panel2); border:1px solid var(--accent);
+    border-radius:8px; padding:10px; box-shadow:0 8px 30px #000c; display:none;
+  }
+  #kf-editor h4{font-size:12px; color:var(--accent2); margin-bottom:8px;}
+  #kf-editor .erow{display:flex; align-items:center; gap:6px; margin:6px 0; font-size:12px; color:var(--dim);}
+  #kf-editor .erow span{width:56px; flex:0 0 56px;}
+  #kf-editor input,#kf-editor select{
+    flex:1; min-width:0; background:#14161b; color:var(--text); border:1px solid var(--line);
+    border-radius:4px; padding:3px 6px; font-size:12px;
+  }
+  #kf-editor .ebtns{display:flex; gap:6px; margin-top:10px;}
+  #kf-editor .ebtns button{flex:1; height:24px; border-radius:5px; border:1px solid var(--line); background:var(--panel); color:var(--text); cursor:pointer; font-size:12px;}
+  #kf-editor .ebtns .del{border-color:var(--danger); color:var(--danger);}
+  #kf-editor .ebtns .del:hover{background:var(--danger); color:#fff;}
+
+  /* ---------- 导出弹窗 ---------- */
+  #export-modal{
+    position:fixed; inset:0; z-index:200; background:rgba(8,9,12,.66); backdrop-filter:blur(3px);
+    display:none; align-items:center; justify-content:center;
+  }
+  #export-modal .card{
+    width:400px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px 22px;
+    box-shadow:0 20px 60px #000d;
+  }
+  #export-modal h2{font-size:15px; margin-bottom:14px; color:var(--accent2);}
+  .frow{display:flex; align-items:center; gap:10px; margin:10px 0; font-size:12.5px; color:var(--dim);}
+  .frow>span{width:72px; flex:0 0 72px;}
+  .frow select,.frow input{
+    flex:1; background:#14161b; color:var(--text); border:1px solid var(--line);
+    border-radius:5px; padding:5px 8px; font-size:12.5px;
+  }
+  .frow input:disabled{opacity:.45;}
+  #export-progress{height:8px; background:#14161b; border-radius:4px; overflow:hidden; margin:12px 0 4px; display:none;}
+  #export-progress i{display:block; height:100%; width:0; background:linear-gradient(90deg,#f6b95a,#e3962b);}
+  #export-status{font-size:11.5px; color:var(--dim); min-height:17px;}
+  #export-modal .ebtns{display:flex; gap:8px; margin-top:14px;}
+  #export-modal .ebtns .tbtn{flex:1; justify-content:center; height:32px;}
+
+  /* 滚动条 */
+  ::-webkit-scrollbar{width:10px; height:10px;}
+  ::-webkit-scrollbar-thumb{background:#3a3f4c; border-radius:5px; border:2px solid #191b21;}
+  ::-webkit-scrollbar-track{background:transparent;}
+</style>
+<script type="importmap">
+{ "imports": { "three": "./assets/vendor/three.module.js" } }
+</script>
+<script src="./assets/vendor/jszip.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div class="logo">✦ Glitter Path · 沟槽反射亮线动画工作台</div>
+    <div class="sep"></div>
+    <button id="btn-view" class="tbtn on">🎥 摄像机视角</button>
+    <button id="btn-sync-cam" class="tbtn" title="把当前视口机位写入播放头时间的关键帧：自由视角摆好机位（旋转/缩放/右键平移）后点此，动画在该时刻即使用此视角">📌 同步视角</button>
+    <button id="btn-grid" class="tbtn on" title="显示/隐藏全局参考网格">📐 网格</button>
+    <button id="btn-frame" class="tbtn on" title="显示/隐藏最终导出视频画幅（安全框，虚线范围即导出画面）">🔲 画幅框</button>
+    <select id="sel-bg" title="切换预览与导出视频的背景色为纯色（纯黑 / 纯白 / 纯绿抠像等），或用右侧色板自定义任意颜色；背景会一并写入导出画面">
+      <option value="">🎨 背景</option>
+      <option value="#05070d">默认（近黑）</option>
+      <option value="#000000">纯黑</option>
+      <option value="#ffffff">纯白</option>
+      <option value="#00b140">纯绿（抠像）</option>
+    </select>
+    <input type="color" id="bg-color" value="#05070d" title="自定义背景颜色（实时生效，导出视频同步使用；纯色抠像建议关闭 📐 网格）"/>
+    <button id="btn-audio" class="tbtn" title="导入外部音频（口播/配乐），在时间轴上显示波形并对齐关键帧节奏">🎙 导入口播</button>
+    <input type="file" id="file-audio" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac" hidden/>
+    <div class="sep"></div>
+    <button id="btn-project-save" class="tbtn" title="把当前工程（全部关键帧与设置）保存为 .json 文件，可备份/分享，随时用「打开工程」恢复">💾 保存工程</button>
+    <button id="btn-project-open" class="tbtn" title="从本地 .json 工程文件恢复全部关键帧与设置（也可直接把文件拖进页面）">📂 打开工程</button>
+    <button id="btn-project-new" class="tbtn" title="清空当前内容，新建工程（恢复默认演示动画）">🗑 新建</button>
+    <input type="file" id="file-project" accept=".json,application/json" hidden/>
+    <button id="btn-export" class="tbtn primary">⬇ 导出动画</button>
+    <button id="btn-help" class="tbtn" title="打开帮助看板：全部功能与快捷键总览（Esc 关闭）">❓ 帮助</button>
+    <div class="spacer"></div>
+    <div class="hint">💾 自动保存 · 空格 播放/暂停 · ←/→ 逐帧 · Delete 删除所选关键帧 · 双击轨道空白处添加关键帧</div>
+  </div>
+
+  <div id="main">
+    <div id="viewport-wrap">
+      <div id="viewport"></div>
+      <div id="safe-frame"><span id="safe-label">1920×1080</span></div>
+      <div id="view-badge">摄像机视角 · 按关键帧动画渲染</div>
+    </div>
+    <div id="panel"></div>
+  </div>
+
+  <div id="splitter"></div>
+
+  <div id="timeline">
+    <div id="tl-toolbar">
+      <button id="btn-start" class="tbtn icon-btn" title="回到开头">⏮</button>
+      <button id="btn-prevf" class="tbtn icon-btn" title="上一帧">◀</button>
+      <button id="btn-play" class="tbtn icon-btn" title="播放/暂停（空格）">▶</button>
+      <button id="btn-nextf" class="tbtn icon-btn" title="下一帧">▶</button>
+      <button id="btn-end" class="tbtn icon-btn" title="到结尾">⏭</button>
+      <label><input type="checkbox" id="chk-loop" checked/>循环</label>
+      <div id="time-display">0.00s · 帧 0</div>
+      <div class="sep" style="width:1px;height:20px;background:var(--line)"></div>
+      <label>时长<input type="number" id="inp-duration" min="1" max="300" step="1" value="12"/>s</label>
+      <label>缩放<input type="range" id="inp-zoom" min="30" max="500" step="5" value="95"/></label>
+      <span id="audio-chip" title="点击移除音频" style="display:none;align-items:center;gap:6px;height:24px;padding:0 9px;background:#23262e;border:1px solid #3a4050;border-radius:5px;font-size:11px;color:#8fd0ff;cursor:pointer;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis">🎙 <span id="audio-chip-name"></span> · <span id="audio-chip-dur"></span> <span style="color:#e5645f">✕</span></span>
+      <div class="spacer"></div>
+      <label class="tl-hint" title="在轨道区按住鼠标拖拽框选多个关键帧 · 拖动任意选中帧可整组移动 · Delete 批量删除">⛶ 拖拽框选</label>
+      <label class="tl-hint" title="播放头/关键帧/粘贴均自动吸附到帧边界（帧率见状态栏，默认 30fps）">🧲 帧吸附</label>
+      <label class="tl-hint" title="按住 Alt 滚动鼠标滚轮：以鼠标位置为中心缩放时间轴（等效于拖动缩放滑杆）">🔍 Alt+滚轮缩放</label>
+      <label class="tl-hint" title="⌘C/⌃C 复制选中关键帧 · ⌘X/⌃X 剪切 · ⌘V/⌃V 粘贴到当前播放头位置（保持各帧相对时间偏移，支持框选批量）">⧉ 复制粘贴</label>
+      <button id="btn-key-all" class="tbtn" title="为所有轨道在当前时间添加关键帧">◇ 全部打关键帧</button>
+      <button id="btn-del-key" class="tbtn" title="删除当前选中的关键帧（支持框选批量删除）">🗑 删除关键帧</button>
+      <button id="btn-paste-key" class="tbtn" title="把剪贴板中的关键帧粘贴到当前播放头位置，保持相对时间偏移（⌘V / Ctrl+V），粘贴的帧默认线性插值">📋 粘贴关键帧</button>
+      <select id="sel-interp" title="批量修改选中关键帧的插值类型（先点击或框选关键帧）">
+        <option value="" selected>∿ 批量插值…</option>
+        <option value="smooth">→ 平滑（贝塞尔）</option>
+        <option value="linear">→ 线性</option>
+        <option value="step">→ 阶梯（保持）</option>
+      </select>
+      <button id="btn-clear-all" class="tbtn" title="一键删除所有轨道的全部关键帧（可用 ⌘Z 撤回）">🗑 清空所有关键帧</button>
+      <button id="btn-undo" class="tbtn" disabled title="撤回上一步操作（⌘Z / Ctrl+Z）">↩ 撤回</button>
+      <button id="btn-redo" class="tbtn" disabled title="重做（⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y）">↪ 重做</button>
+    </div>
+    <div id="tl-body">
+      <div id="tl-content">
+        <div id="playhead"></div>
+        <div id="marquee"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="kf-editor">
+  <h4>关键帧编辑</h4>
+  <div class="erow"><span>轨道</span><input id="kf-track" disabled/></div>
+  <div class="erow"><span>时间 (s)</span><input id="kf-time" type="number" step="0.01" min="0"/></div>
+  <div class="erow"><span>数值</span><input id="kf-value" type="number" step="0.01"/></div>
+  <div class="erow"><span>插值</span>
+    <select id="kf-interp">
+      <option value="smooth">平滑（自动贝塞尔）</option>
+      <option value="linear">线性</option>
+      <option value="step">阶梯（保持）</option>
+    </select>
+  </div>
+  <div class="ebtns">
+    <button id="kf-delete" class="del">删除</button>
+    <button id="kf-close">完成</button>
+  </div>
+</div>
+
+<div id="export-modal">
+  <div class="card">
+    <h2>导出动画</h2>
+    <div class="frow"><span>分辨率</span>
+      <select id="exp-res">
+        <option value="1280x720">1280 × 720（720p）</option>
+        <option value="1920x1080" selected>1920 × 1080（1080p）</option>
+        <option value="3840x2160">3840 × 2160（4K）</option>
+        <option value="custom">自定义…</option>
+      </select>
+    </div>
+    <div class="frow" id="exp-custom-row" style="display:none">
+      <span>自定义</span>
+      <input id="exp-w" type="number" value="1920" min="16" step="2" style="flex:1"/> ×
+      <input id="exp-h" type="number" value="1080" min="16" step="2" style="flex:1"/>
+    </div>
+    <div class="frow"><span>帧率</span>
+      <select id="exp-fps">
+        <option value="24">24 fps（电影）</option>
+        <option value="30" selected>30 fps</option>
+        <option value="60">60 fps（流畅）</option>
+      </select>
+    </div>
+    <div class="frow"><span>格式</span>
+      <select id="exp-format">
+        <option value="mp4" selected>MP4 视频（H.264，通用可预览）</option>
+        <option value="webm">WebM 视频（VP9）</option>
+        <option value="png">PNG 图像序列（ZIP 打包）</option>
+      </select>
+    </div>
+    <div class="frow" style="color:var(--dim);font-size:11.5px;line-height:1.5">
+      <span></span>
+      <span>MP4/WebM 无声导出采用 WebCodecs 精确编码，帧率严格等于所选值；混入口播时为实时录制，帧率由浏览器决定。</span>
+    </div>
+    <div class="frow" id="exp-mix-row" style="display:none"><span>混入口播</span>
+      <label style="flex:1;display:flex;align-items:center;gap:8px;color:var(--text);cursor:pointer;font-size:12.5px">
+        <input type="checkbox" id="exp-mix" checked/> 将导入的口播音频合成进视频（实时录制模式）
+      </label>
+    </div>
+    <div class="frow"><span>范围</span><input id="exp-range" disabled/></div>
+    <div id="export-progress"><i></i></div>
+    <div id="export-status"></div>
+    <div class="ebtns">
+      <button id="exp-start" class="tbtn primary">开始导出</button>
+      <button id="exp-cancel" class="tbtn">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 帮助看板：全部功能与快捷键总览 -->
+<div id="help-overlay">
+  <div class="help-card">
+    <div class="help-head">
+      <h3>📖 帮助看板 · 功能总览</h3>
+      <button id="help-close">✕ 关闭（Esc）</button>
+    </div>
+    <div class="help-body">
+      <div class="hsec"><h4>🎬 播放与时间轴</h4><ul>
+        <li><b>播放 / 暂停</b>：<kbd>空格</kbd>；工具栏 ⏮ ◀ ▶ ▶ ⏭ 回到开头 / 逐帧 / 播放 / 结尾；可勾选循环</li>
+        <li><b>逐帧步进</b>：<kbd>←</kbd> / <kbd>→</kbd>（自动吸附帧边界）</li>
+        <li><b>跳转播放头</b>：点击或拖动标尺 / 轨道空白处（scrub 跟随），也可拖动波形</li>
+        <li><b>🧲 帧吸附</b>：播放头、关键帧拖动、粘贴全部自动对齐到帧边界（帧率见状态栏）</li>
+        <li><b>🔍 缩放时间轴</b>：按住 <kbd>Alt</kbd> 滚动滚轮（以鼠标位置为中心），或拖动「缩放」滑杆</li>
+        <li><b>时长</b>：工具栏直接修改总时长（秒）</li>
+      </ul></div>
+      <div class="hsec"><h4>◆ 关键帧编辑</h4><ul>
+        <li><b>添加</b>：「◇ 全部打关键帧」为所有轨道在播放头处打帧；<em>双击轨道空白处</em>为该轨道插帧</li>
+        <li><b>自动打帧</b>：直接拖动左侧参数面板数值，当前时间自动记录关键帧</li>
+        <li><b>选中</b>：单击菱形单选；<b>⛶ 框选</b>——在轨道空白处按住拖出矩形框选多帧（<kbd>Shift</kbd> 追加选择）</li>
+        <li><b>移动</b>：拖动菱形改时间；框选后拖动任一帧<em>整组同步移动</em></li>
+        <li><b>编辑数值</b>：双击菱形打开编辑器（时间 / 数值 / 插值）</li>
+        <li><b>复制 / 剪切 / 粘贴</b>：<kbd>⌘C</kbd>/<kbd>⌃C</kbd>、<kbd>⌘X</kbd>/<kbd>⌃X</kbd>、<kbd>⌘V</kbd>/<kbd>⌃V</kbd>（或 📋 按钮）——粘贴到播放头位置，保持各帧相对时间偏移，<em>粘贴的帧默认线性插值</em></li>
+        <li><b>∿ 批量插值</b>：<em>新增</em>——选中（或框选）关键帧后，用工具栏「批量插值」下拉一键改为 平滑 / 线性 / 阶梯，一次可撤回</li>
+        <li><b>删除</b>：<kbd>Delete</kbd> / <kbd>Backspace</kbd> 批量删除选中帧；「🗑 清空所有关键帧」一键清空</li>
+        <li><b>取消选择</b>：<kbd>Esc</kbd>（再按关闭编辑器 / 帮助看板）</li>
+      </ul></div>
+      <div class="hsec"><h4>🎥 视角与画面</h4><ul>
+        <li><b>视角切换</b>：🎥 摄像机视角（按关键帧动画渲染）/ 🖐 自由视角（拖拽旋转 · 滚轮缩放 · 右键平移，不影响关键帧）</li>
+        <li><b>📌 同步视角</b>：自由视角摆好机位后一键写入当前时间的关键帧</li>
+        <li><b>📐 网格</b>：全局坐标轴参考网格显示开关</li>
+        <li><b>🔲 画幅框</b>：显示最终导出视频的画面范围（虚线安全框）</li>
+        <li><b>🎨 背景色</b>：<em>新增</em>——顶栏「背景」下拉一键切换 默认 / 纯黑 / 纯白 / 纯绿（抠像）等纯色背景，或右侧色板自定义任意颜色；背景实时生效并随导出视频一并输出（纯色抠像建议关闭 📐 网格）</li>
+        <li><b>面板高度</b>：拖动时间线面板上边缘调整布局</li>
+      </ul></div>
+      <div class="hsec"><h4>🎙 音频与节奏</h4><ul>
+        <li><b>导入口播</b>：导入外部音频（mp3 / wav / ogg / m4a…），时间轴显示波形</li>
+        <li><b>对齐</b>：拖动播放头沿波形精确对齐关键帧节奏；点 🎙 标签可移除</li>
+        <li>导出时可勾选「混入口播」合成进视频（实时录制模式）</li>
+      </ul></div>
+      <div class="hsec"><h4>💾 工程管理</h4><ul>
+        <li><b>自动保存</b>：所有修改实时保存到本地，刷新页面不丢失</li>
+        <li><b>💾 保存工程</b>：导出 .json 工程文件，可备份 / 分享</li>
+        <li><b>📂 打开工程</b>：从 .json 恢复全部关键帧与设置（也可直接把文件拖进页面）</li>
+        <li><b>🗑 新建</b>：清空当前内容恢复默认演示动画</li>
+        <li><em>注意</em>：音频不内嵌工程文件（仅波形数据），恢复后需重新导入音频</li>
+      </ul></div>
+      <div class="hsec"><h4>⬇ 导出动画</h4><ul>
+        <li><b>格式</b>：MP4（H.264 通用可预览）/ WebM（VP9）/ PNG 序列（ZIP 打包）</li>
+        <li><b>精确帧率</b>：无声导出采用 WebCodecs 精确编码，帧率严格等于所选值；混入口播时为实时录制</li>
+        <li>导出范围即画幅框（🔲）所示画面</li>
+      </ul></div>
+      <div class="hsec"><h4>⌨️ 快捷键速查</h4><ul>
+        <li><kbd>空格</kbd> 播放 / 暂停　<kbd>←</kbd><kbd>→</kbd> 逐帧　<kbd>Esc</kbd> 取消选择 / 关闭面板</li>
+        <li><kbd>Delete</kbd> / <kbd>Backspace</kbd> 删除选中关键帧</li>
+        <li><kbd>⌘C</kbd>/<kbd>⌃C</kbd> 复制　<kbd>⌘X</kbd>/<kbd>⌃X</kbd> 剪切　<kbd>⌘V</kbd>/<kbd>⌃V</kbd> 粘贴到播放头</li>
+        <li><kbd>⌘Z</kbd>/<kbd>⌃Z</kbd> 撤回　<kbd>⌘⇧Z</kbd>/<kbd>⌃⇧Z</kbd>/<kbd>⌃Y</kbd> 重做</li>
+        <li><kbd>Shift</kbd>+框选 追加选择　<kbd>Alt</kbd>+滚轮 缩放时间轴</li>
+      </ul></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
