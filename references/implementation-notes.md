@@ -170,3 +170,12 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
    - 角度类：rotX/rotY/rotZ/grooveAngle 给 ±540°（多圈），fov 给 5~150（超大广角 OK），距离类给 3 倍左右余量。
    - 数值框 min/max 属性也换成 lo/hi（`<input type="number" min="${tr.lo ?? tr.min}" max="${tr.hi ?? tr.max}">`），原生 spinner 箭头可走到安全边界。
 5. **验证（Playwright DOM-only）**：数值框输入超 max（如 camX=1000>400）→ `num.value` 保留、`range.value` 贴边 400、range 有 overflow class、时间线 tval 同步；输入超 hi（5000>1200）→ clamp 到 1200；scrub 拖拽（dispatch pointerdown/pointermove/pointerup）→ 值可超 max 继续增；物理极值（width=10/aspect=24/flow=80）→ canvas 重绘 `litPx` 正常、无 pageerror；seg 轨道断言无 number 输入框；localStorage 保存后刷新，超范围关键帧值与 overflow 状态保持。**注意**：物理超范围值必须实测渲染不崩，别只信数值逻辑。
+
+## 十七、配色面板（线条颜色 + 平面颜色/透明度，模板已内置）要点
+
+1. **双层分组**：`colors = { lines: { cage/section/front/grid }, planes: { jet/sectionFill/sectionHalo/frontFill/scan } }`，每项 `{color, opacity}`。`COLOR_DEFAULTS` 覆盖默认配色；持久化用 `sanitizeColors` 校验 hex6 + opacity[0,1]。
+2. **jet 内材质暴露**：液柱/扫描相关材质全在 jet IIFE 内，jet 暴露 `applyJetColors()` 方法处理 jetMat/solidMat/wireMat/cageMat/sectionMesh/sectionHalo/sectionLine/frontFill/frontLine/scanBoxMat/scanPlaneMat；模块级 `applyColors()` 调 `jet.applyJetColors()` + 遍历 `grid.material` 数组（GridHelper 有两个 LineBasicMaterial）。**关键**：jet 内有局部 `const colors`（热力图 Float32Array 顶点色），必须重命名为 `heatColors` 否则遮蔽模块级 colors → `colors.planes.jet.color` 拿到 Float32Array 报错。
+3. **重建初始化**：updateScan/updateFront 每次重建 sectionMesh/sectionHalo/sectionLine/frontFill/frontLine 材质时，**必须**用 `new THREE.Color(colors.planes.xxx.color).getHex()` 初始化（不仅是 modify）——否则重建后配色丢失。rebuild 重建 jetMesh/solidMat/cageMat 同理（`!jetMesh`/`m === 1 && !solidMat` 等一次性创建路径）。
+4. **透明度叠加系数**：液柱玻璃 jetMat 的 `opacity = colors.planes.jet.opacity * (dim ? 0.304 : 1)`（默认 0.92，dim 时降为 0.28 ≈ 0.92×0.304）；cageMat `opacity = colors.lines.cage.opacity * (dim ? 0.333 : (mode === 0 ? 1 : 1.667))`（默认 0.45，玻璃 1×0.45=0.45 / 实心 1.667×0.45=0.75 / dim 0.333×0.45=0.15）；setMode 与 applyDim 都调此公式，**避免**分散修改 cageMat.opacity。solidMat/wireMat 不受 colors 透明度影响（默认固定 dim?0.3:1）——若要支持需额外映射。
+5. **GridHelper 材质**：构造 `new GridHelper(size, div, color1, color2)` 创建**两个** LineBasicMaterial（主线/次色）；`grid.material` 是数组需遍历。透明度统一应用（损失原主/次色层次——可接受）。
+6. **验证（Playwright swiftshader 局限）**：transmission/glass 材质（液柱/cage）在 swiftshader headless 下渲染异常（截图为空背景），回滚到 3acdb77 clean 也复现此问题——**与本功能无关，是 swiftshader + glass 材质渲染限制**。**可靠断言**：网格 LineBasicMaterial 可渲染，改色后底部区域逐像素扫描（宽松判定如 `g>r+15 && g>b+15` 验证绿色，因 ACES tone mapping 后 #00ff00 渲染像素 r 也会被压低）；液柱改色仅断言状态（localStorage colors 字段正确 + 刷新恢复 + 无 JS 错误）。
