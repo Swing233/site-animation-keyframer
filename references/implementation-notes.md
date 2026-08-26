@@ -1,0 +1,160 @@
+# 实现说明与陷阱清单
+
+基于模板 `assets/animation-workbench-template/`（源自"沟槽反射亮线模拟器"增强版实战）总结。
+
+## 一、分析原站的 grep 技巧
+
+minified bundle 里最有效的信息源是**中文 UI 标签**和**变量名**：
+
+```bash
+# 中文标签（发现参数与现象描述）
+grep -o '"[^"]\{4,40\}"' bundle.js | grep -E '沟槽|光线|深度|数量|角度|强度|相机|视角' | sort | uniq -c | sort -rn
+# 引擎判定
+grep -o 'WebGLRenderer\|PerspectiveCamera\|OrbitControls' bundle.js | sort | uniq -c
+# 英文变量/参数名
+grep -o "'[a-zA-Z]\{3,30\}'" bundle.js | grep -iE 'count|depth|angle|light|camera|mode' | sort | uniq -c
+```
+
+## 二、模板 app.js 的结构（改动点标注）
+
+| 区段 | 是否改动 | 说明 |
+|------|---------|------|
+| `TRACKS` 数组 | **必改** | 每轨道：`{g:分组, id, label, min, max, step, def, integer?, seg?}`；`seg` 用于枚举型参数（自动用阶梯插值 + 分段按钮 UI） |
+| `seedDemo()` | **必改** | 预置演示关键帧：`K('轨道id', [[t, v, 'interp?'], ...])` |
+| 场景搭建（plate/lightRig 等） | **必改** | 复刻原站现象；光源/物体可视化随参数更新 |
+| `applyAll(t, forceCamera)` | 部分改 | 把 `v[轨道id]` 接到场景；摄像机/面板/播放头逻辑保持不动 |
+| 时间轴 UI、关键帧编辑、导出 | **不改** | 通用，直接复用 |
+
+`upsertKey` / `evalTrack` / `removeKey` 是关键帧数据层。**任何数值改动（面板输入/拖拽微调/枚举按钮）都走 `commitValue(tr, raw)` → 恒在当前播放头时间 `upsertKey`**：该时刻无关键帧则自动创建（继承轨道默认插值），有则原地更新、绝不重复。这等价于 AE 常开码表的行为——改值即打帧，符合"时间轴上没有关键帧就自动创建"的预期。轨道从未被打过帧时，`evalTrack` 回退到 `state.statics[id]` 静态默认值。
+
+## 三、Shader / 视觉陷阱（实战踩过）
+
+1. **周期纹理摩尔纹**：屏幕空间过滤是标准解——`float fw = fwidth(phase); float micro = 1.0 - smoothstep(0.4, 1.2, fw);`，把法线扰动和槽纹明暗都乘 `micro`（可再乘 `exp(-dist*0.02)` 距离衰减双保险）。WebGL2 直接用 `fwidth`，无需扩展声明。
+2. **法线扰动振幅必须小**：`slope = -sin(phase) * depth * 0.9` 量级即可（最大倾角 ~40°）。**绝不能乘 spacing/频率**（如 `* 30`）——法线近乎随机水平，高光会散成满屏噪声。
+3. **高光泛白整板**：多点光源叠加 + 宽 shininess 会让整个面变灰。对策：锐化 `shin = mix(60, 600, 1-rough)`、每光源距离衰减 `att = 1/(1+0.02*dist2)` 让亮斑局部化、压低 diffuse 与 fresnel 环境项。
+4. **各向异性亮线**（拉丝/沟槽类）：Kajiya 项 `aniso = pow(max(0, 1-abs(dot(H,T))), p)`，T 为沟槽切向，乘进 specular。
+5. **Tone mapping 顺序**：`col = col/(1+col)` 再 `pow(col, 1/2.2)`；gamma 会显著抬亮暗部，评估"背景够不够黑"要按 gamma 后的值估算。
+6. **Three.js 录屏/截图**：renderer 必须 `preserveDrawingBuffer: true`、`setPixelRatio(1)`，导出时 `setSize(w,h,false)`（不改 CSS 尺寸）。
+
+## 四、Whammy / JSZip API 速查
+
+```js
+// WebM（精确帧率，逐帧喂 webp dataURL）
+const video = new Whammy.Video(fps);            // fps 决定每帧 duration
+video.add(canvas.toDataURL('image/webp', 0.92)); // 必须是 webp dataURL 或 canvas
+const blob = await new Promise(res => video.compile(false, res));
+
+// PNG 序列 ZIP
+const zip = new JSZip();
+const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+zip.file(`frame_${String(i).padStart(4,'0')}.png`, blob);
+const out = await zip.generateAsync({type:'blob'}, m => {/* m.percent 进度 */});
+```
+
+## 五、导出循环的正确姿势
+
+- 逐帧 `applyAll(t, true)`（第三个参数强制按相机动画渲染，忽略当前自由视角）→ `renderer.render` → 立刻抓帧（同帧同步抓取最稳）。
+- 每帧 `await new Promise(r=>setTimeout(r,0))` 让出主线程刷进度条；检查取消标志位。
+- 结束后恢复 `renderer.setSize(旧w,旧h,false)` 与 `camera.aspect`。
+- 4K×60fps×长时长会慢且吃内存，属正常；给进度条和取消按钮即可。
+
+## 六、验证（headless-browser-testing 技能）
+
+agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwright-core + 系统 Edge（`--use-angle=swiftshader --enable-unsafe-swiftshader`）。测试脚本要点与已知陷阱（boundingBox 遮挡、下载魔数校验、弹窗拦截点击）见该技能的 SKILL.md。
+
+## 七、交互层陷阱（实战踩过，勿重蹈）
+
+1. **`setPointerCapture` 在合成 PointerEvent 下抛错**：测试里用 `el.dispatchEvent(new PointerEvent('pointerdown',...))` 模拟拖动时，`setPointerCapture` 抛 `No active pointer with the given id is found` 并**中断整个 handler**（表现为 scrub 永远 0.00s、拖动无效）。所有 `setPointerCapture` 调用必须包 `try{...}catch(_){}`：真实指针下正常捕获，合成事件下静默跳过。
+2. **参数列/关键帧列滚动错位**：绝不要做成两个各自 `overflow-y:auto` 的容器（行高、分组头不一致必然错位）。正确方案：单一滚动容器 + 参数列 `position:sticky;left:0`（水平滚动钉左），左右两侧分组头行同高（如 24px）、参数行/轨道行同高（如 26px），行数逐行对应。
+3. **参数值拖拽微调（scrub）模式**：`pointerdown` 记 `{startX, startVal}`，`pointermove` 里 `val = startVal + dx * base`，其中 `base = (max-min)/200`（拖满 200px 走完整量程）、Shift 时 `base×0.1` 精细微调；`>3px` 才判定为拖动，未拖动且目标是输入框则 `focus()` 允许键入；元素加 `touch-action:none` 与 `user-select:none`。每次 move 直接 `commitValue`（自动打帧 + 渲染）。
+4. **自动创建关键帧的容差**：`findIndex(k => Math.abs(k.t - t) <= 0.5/30)`（半帧 @30fps）判定"该时刻已有帧"，避免拖动数值时在既有帧旁产生重复帧。
+5. **音频行/特殊行排除 scrubbing**：数值拖拽只挂到普通参数行的 `.tval`/`.wb-val`，用 `:not(#audioRowId)` 或 `data-id` 选择器排除音频波形行；音频行点击有自己的 seek 逻辑。
+6. **`delKeyframe` 要防 `index < 0`**：仅点击选中轨道（未选具体帧）时 selected.index 为 -1，直接 `splice(-1,1)` 会误删最后一帧，需守卫返回。
+7. **自由视角同步按钮（📌 同步视角，模板已内置）**：`applyAll` 里的 `controls.target.set(...)` 必须包在 `if (driveCamera)` 内——否则每帧都会把用户右键平移的视觉中心拉回关键帧求值，自由视角的"平移"形同虚设（旋转/缩放只改 `camera.position` 不受影响，因为 `driveCamera=false` 时不写 position）。按钮逻辑：读 `camera.position` + `controls.target` 写入 `camX/Y/Z`、`tgtX/Y/Z` 当前播放头时间的关键帧；当 `state.lookAtTarget` 未勾选（用旋转轨道控朝向）时，用 `new THREE.Euler(0,0,0,'YXZ').setFromQuaternion(camera.quaternion)` 取欧拉写 `rotX/Y/Z`——**欧拉序必须与 applyAll 写回时的 `'YXZ'` 一致**，否则旋转会错乱；所有写入值 clamp 到轨道 min/max。按钮在自由视角时高亮（`.on`），反馈复用 `viewBadge` 短暂提示后恢复。
+8. **撤销/重做（↩ 撤回 / ↪ 重做，模板已内置）**：核心可变状态是 `state.keys`（每轨道 `{t,v,interp}` 数组），快照式方案 = 每次破坏性修改前 `snapshot()` 深拷贝全轨道表压入 `undoStack`（`redoStack` 在快照时清空）；`undo()` 把当前态压入 redoStack、整体替换 `state.keys` 并重渲染。要点：①**手势合并**——`pointerdown` 时 `beginGesture()`（scrub、菱形拖拽、面板滑杆），`snapshot()` 内做"同手势 + 500ms 内"去重，否则一次数值拖拽会压入几十个撤销节点；②**入口全覆盖**（漏一处就"撤不动"）：`commitValue`、菱形 `k.t = t`、轨道双击插帧、面板/轨道行 ◇ 按钮、kf-editor 的 time/value/interp 三个 change + kf-delete、`btn-key-all`/`btn-del-key`/`btn-clear-all`、键盘 Delete、`syncFreeViewToKeys`、时长修改与导入口播导致的 `k.t` 钳制；③**非破坏操作不记录**：seek、播放、视角切换、缩放、时长本身；④快捷键判定用 **`e.code === 'KeyZ'` / `'KeyY'`（物理键位）而非 `e.key`**——中文输入法激活时 `e.key` 可能不返回 'z'，会导致快捷键静默失效；且判断放在 INPUT/SELECT 早退**之前**（`⌘/Ctrl+Z` 撤销、`⌘/Ctrl+Shift+Z` 与 `Ctrl+Y` 重做），保证编辑器输入框内也能撤回关键帧改动；⑤撤销后若所选帧索引已不存在则清空 `state.selected`、关闭 kf 弹窗、刷新按钮禁用态；⑥空栈时 `flashHint` 提示并直接返回（连按不越界）。
+
+  9. **导出画幅安全框（🔲 画幅框）+ 全局网格开关（📐 网格，模板已内置）**：安全框**必须用 DOM overlay**（`#viewport-wrap` 内绝对定位的虚线框 + 左上角分辨率标签）而不是 3D 线框——相机在场景内画不了"屏幕边缘框"，且 DOM overlay 不进 canvas，导出录制时不会污染画面。比例跟随导出分辨率：`currentExportSize()` 读 `#exp-res`（custom 时读 `#exp-w/#exp-h`），宽/高取 viewport 的 94% 上限等比缩放；`resize()` 里调用 `updateSafeFrame()`。网格开关只是 `grid.visible = !grid.visible` + 按钮 `.on` 类。**位置陷阱**：功能块必须插在 `new ResizeObserver(resize).observe(viewport);` 之后、`resize()` 首次显式调用**之前**，否则 `const safeFrame` 引用存在 TDZ 报错。
+
+  10. **导出格式：MP4(H.264)/WebM(VP9) 用浏览器原生 MediaRecorder，Whammy 已退役**：Whammy（纯 JS WebM 编码器）生成的 WebM **缺时长元数据 + VP8 编码**，QuickTime/Safari/多数播放器无法预览——用户反馈"导出 webm 无法预览"的根源。正确方案：`canvas.captureStream(fps)` + `MediaRecorder` 实时录制，`MediaRecorder.isTypeSupported()` 依次探测 `video/mp4;codecs=avc1.42E01E` → `video/mp4` → `video/webm;codecs=vp9` → `vp8`（Firefox 无 MP4 录制，需回退 WebM 并禁用 MP4 选项）。要点：①**rAF 按真实流逝时间推进动画**（`el = (performance.now()-t0)/1000`，`el >= state.duration` 时 `rec.stop()`），保证视频总时长 = 动画时长；②**用户明确选 WebM 时 `wantWebm` 参数强制只在 WebM 容器内选 MIME**，否则优先 MP4 会"选了 WebM 却录出 MP4"；③混音导出同样走 `pickVideoMime(true, wantWebm)`（MP4 优先 + 音频轨）；④导出期间临时 `renderer.setSize(w,h,false)` 改画布尺寸、完成后恢复；⑤验证：下载文件魔数校验——MP4 头第 5-8 字节为 `ftyp`、WebM 头为 EBML `1a45dfa3`，有 ffprobe 时用 `ffprobe -show_entries stream=codec_name,width,height` 确认 h264；⑥实时录制掉帧风险在慢机器/无 GPU 环境存在，PNG 序列仍是逐帧精确的保底方案。
+
+## 八、路线 B（注入式工作台）要点
+
+- **frame-buster 重定向**：原站常有 `window.location.replace(...)` 防 iframe，直接加载会被跳走，删除首行。
+- **硬编码视角改变量**：`m4persp(48*DEG,...)` → `m4persp(cam.fov,...)`；摄像机参数归入一个 `cam` 对象供工作台写入。
+- **三段式注入**：CSS + HTML（`<div id="wb">`）+ JS（IIFE，独立 `wb` 状态对象）追加到原文件末尾；`applyAll(t)` 把 `evalTrack` 结果写回原站状态（如 `S['depth']=v`）并触发原站 `rebuild()/applyScene()`。
+- **WebGL2 + swiftshader**：`EXT_color_buffer_float` / `EXT_float_blend` 在无头 swiftshader 下可跑（实测可行），截图/录屏验证没问题。
+- 原站滑杆保留即可：播放时 `applyAll` 覆盖，两者互不干扰。
+
+## 九、工程管理（自动保存 + 导入导出，模板已内置）要点
+
+1. **序列化范围**：`{app, version, savedAt, duration, time, loop, px, view, lookAtTarget, gridVisible, frameVisible, keys, audio?}`。`keys` 直接引用 `state.keys`（JSON.stringify 自动深拷贝）；音频只存**峰值元数据**（name/duration/peaks 数组），**不存音频本体**——工程文件保持轻量，恢复后波形可显示（`metaOnly` 标志），但播放/混音需重新导入音频文件。
+2. **自动保存入口**：`scheduleAutosave()` 防抖 600ms 写 localStorage。**必须挂在所有修改入口**：`snapshot()`（覆盖全部关键帧编辑）、`seek()`（播放头位置）、`setView()`、lookAt 勾选、loop、缩放、时长、网格/画幅框开关、音频导入/移除。`beforeunload` 兜底立即保存一次。**不要在 `applyAll`/主循环里保存**（每帧调用会疯狂写盘）。
+3. **恢复时机是硬约束**：`tryRestoreAutosave()` 必须在 `buildTimeline()` **之前**执行（时间轴按恢复后的 `state.keys`/`duration` 构建），同时必须在 `safeFrame`/`grid` 等 DOM 引用定义**之后**（`applyProjectData` 会操作它们）。模板里放在 `updateSafeFrame()` 调用之后、splitter 块之前正好满足。
+4. **`sanitizeProject` 容错**：校验 `app` 标识 + `keys` 结构（非本工作台文件直接抛错）；每条关键帧校验 `t/v` 有限性、clamp 到轨道 min/max、整数轨道取整、非法插值回退（seg 轨道→`step`，其余→`smooth`）、按 t 排序；`duration/time/px` 全部 clamp。导入后清空撤销栈（旧栈指向已失效的状态）。
+5. **`newProject` 默认值不要硬编码**：用 `parseFloat(document.getElementById('inp-duration').defaultValue)` 读取 HTML 初始值——模板（12s）与具体项目（14s）默认时长不同，硬编码会让"新建"重置错时长。
+6. **拖拽导入**：window 级 `dragover` 阻止默认 + `drop` 里按 `.json` 后缀过滤后走同一 `importProjectFile` 入口。
+7. **验证脚本纯 DOM 断言**（模块作用域变量 `state` 在 page.evaluate 里不可见）：时长读 `#inp-duration.value`、视角读 `#btn-view` 文本、网格读 `#btn-grid` 的 `.on` class、播放头读 `#time-display`、关键帧读 `.diamond` 的 `left`（= t×px）与 `title`（含 `= 值`）。localStorage 可跨 reload 保留（同一 context），改状态 → 等 900ms → `page.reload()` → 断言恢复。
+
+## 十、导出帧率陷阱：MediaRecorder 帧率不受控 → WebCodecs 精确编码（模板已内置）
+
+1. **根因**：`canvas.captureStream(fps)` + `MediaRecorder` 的输出帧率由**浏览器编码器**决定，API 无法指定输出帧率。实测设置 60fps 导出，Chrome 实际输出只有 **~23.98fps**（用户反馈"导出 60 帧结果帧率只有 23"）。MediaRecorder 只能保证"时长正确 + 内容完整"，帧率规格不可信。
+2. **正确方案（无声导出）**：**WebCodecs `VideoEncoder` 逐帧精确编码**——`frames = duration×fps` 逐帧 `applyAll(t,true)` + `renderer.render()` → `new VideoFrame(canvas, {timestamp: i×1e6/fps, duration: 1e6/fps})` → `encoder.encode(frame, {keyFrame})` → muxer 封装。
+   - **muxer 库**：`mp4-muxer@5.2.2`（全局 `Mp4Muxer`）与 `webm-muxer@5.0.3`（全局 `WebMMuxer`）从 jsdelivr 动态注入 `<script>`，两者 UMD 都暴露 `Muxer` 类 + `ArrayBufferTarget`（不是 `WebMuxer`/`Mp4Muxer` 类名，注意核对）。**不要**把库内联进 app.js（体积翻倍且无必要）。
+   - **codec 探测降级链**：`VideoEncoder.isConfigSupported` 依次试 H.264 `avc1.64002a→640028→42002a→42001f`、VP9 `vp09.00.41.08→vp09.00.10.08`；mp4-muxer 的 `video.codec` 传 `'avc'`、webm-muxer 传 `'V_VP9'`。
+   - **muxer 配置**：`firstTimestampBehavior: 'offset'`（首帧时间戳从 0 偏移，否则报错）；MP4 加 `fastStart: 'in-memory'`（moov 前置，便于播放器预览）。
+   - **背压**：`while (enc.encodeQueueSize > 8) await new Promise(r=>setTimeout(r,0))`——编码是异步队列，4K 长动画不背压会内存暴涨。
+   - **VideoFrame 必须 `close()`**（每帧编码后立即释放）。
+3. **回退**：浏览器无 `VideoEncoder`/`VideoFrame`（Firefox、Safari<16.4）或 muxer 库加载失败 → 回退 MediaRecorder，状态栏提示"实际帧率由浏览器决定（通常 24/30fps）"。**带混音导出保持 MediaRecorder**（音画实时同步优先，帧率同样不受控，状态栏已注明）。
+4. **UI 提示**：导出面板加一行说明"MP4/WebM 无声导出采用 WebCodecs 精确编码，帧率严格等于所选值；混入口播时为实时录制，帧率由浏览器决定"。
+5. **验证（关键）**：ffprobe 实测 `avg_frame_rate`——60fps 导出必须为 `60/1`、帧数 = duration×60。**不要用浏览器内 `getVideoPlaybackQuality().totalVideoFrames` 实测帧率**：无头环境下会误报（实测读出 19），且 UI 会误导用户。WebCodecs 路径帧率是确定性的，状态栏直接写"@ 60fps 精确编码"即可。下载文件魔数校验仍有效（MP4 `ftyp`、WebM EBML `1a45dfa3`）。
+
+## 十一、关键帧框选（marquee 多选 + 整组拖动 + 批量删除，模板已内置）要点
+
+1. **多选状态**：新增 `state.sel: Set`（存 `"trackId:index"` 字符串），`state.selected` 由它**派生**（`syncSelected()`：仅 `size===1` 时设置 `state.selected={track,index}`）——保持与编辑器、键盘等旧代码兼容，避免大面积重构。高亮渲染一律读 `state.sel.has(tr.id+':'+i)`，不再直接读 `state.selected`。
+2. **手势判定**：轨道区空白 `pointerdown` 记录起点 `{x0,y0}`（同时 `laneSeek` 保留 scrub 行为），`pointermove` 位移 >5px 才进入框选模式（防止误触）；`pointerup` 用 `getBoundingClientRect` 求矩形内所有 `.diamond` **中心点**命中（不是元素边界相交——半遮挡帧不该被选）。`#marquee` 为 `position:absolute; z-index:40; pointer-events:none` 的半透明矩形，结束时隐藏。
+3. **名字列排除**：框选起点落在 `.tl-name`（196px 名字列）内时用 `e.target.closest('.tl-name')` 提前 return——否则点名字列会误触发框选/或框选 0 帧。验证脚本起点必须用 `NAMES_W + 2`（不能用 `NAMES_W - 5`，会落进名字列）。
+4. **Shift 追加**：`e.shiftKey` 时框选**不清空**现有选择（union 合并），否则先 `clearSelection()`。
+5. **整组拖动**：`drag.group` 保存所有选中帧的 `{id, i, k(对象引用), initT}`；move 时按主帧 delta `k.t = clamp(initT + delta, 0, duration)` 同步移动**对象引用**（不是 index——排序变化后 index 失效）；`pointerup` 后按对象引用**重建 `state.sel`**（各帧新 index 重新入 Set），一次 `snapshot()` 整体可撤回。
+6. **批量删除**：`deleteSelection()` 按 trackId 分组、每组索引**降序** `splice`（升序会错位），一次 `snapshot()`；`btn-del-key`/键盘 Delete/Backspace 都走它。`removeKey` 内同步 `state.sel.delete(id+':'+index)`。
+7. **撤销兼容**：`afterKeysChanged()` 改为调 `rebuildSelection()`——剔除已失效的 `"trackId:index"`（index 越界或超时长），防止撤销后 `state.sel` 指向幽灵帧；`openKfEditor`/`kf-time` change 改用 `clearSelection()` + `selKey()` 单选语义。Esc 取消选择（`clearSelection()` + `renderDiamonds()`）。
+8. **DOM-only 验证模式**（模块作用域 `state` 对 `page.evaluate` 不可见）：断言 `.diamond.selected` 数量、`style.left`（= t×px，整组右移 Δ=60px）、`title` 含 `= 值`；批量删除后数量 = 原数−选中数；⌘Z 后全部恢复。Shift 追加测试的框选区域必须够大（2px 窄条会 miss 帧中心），改用轨道 2~4s 区域必然命中。
+
+## 十二、关键帧复制/剪切/粘贴（⌘C/⌘X/⌘V，模板已内置）要点
+
+1. **剪贴板结构**：模块级 `let kfClipboard = null`，存 `[{id, t, v, interp}]`（**深拷贝值**，不存 index——粘贴时 index 必然失效）。复制来源直接遍历 `state.sel`，天然支持框选批量。
+2. **粘贴锚点算法**：`anchorT = min(剪贴板各帧 t)`，新位置 `t = clamp(播放头 + (item.t − anchorT), 0, duration)`——**保持各帧相对最早帧的时间偏移**，整组形状不变形。播放头本身 clamp 到 [0, duration]。
+3. **upsert 语义**：粘贴用现成的 `upsertKey(id, t, v, interp)`——同位置已有帧则**覆盖其值不新增**（同一播放头连按 ⌘V 不会堆积重复帧）。这是特性不是缺陷；想再贴一份先拖走播放头。验证脚本必须注意：**连续两次粘贴在同一播放头，第二次数量不变**，测试预期别写成 +N。
+4. **粘贴后自动选中新帧**：对每个粘贴项 `idx = keyIndexAt(id, t)`，`state.sel.add(selKey(id, idx))`——用户粘贴后可立即整组拖动微调位置，体验与"粘贴即选中"一致。多个帧 clamp 到 duration 时 index 可能重复，Set 自动去重无碍。
+5. **一次快照**：`pasteSelection()` 开头 `snapshot()` 一次（整组粘贴 = 一步撤销）；`cutSelection() = copySelection() + deleteSelection()`（删除内部自带快照）。
+6. **键盘绑定位置**：⌘C/⌘X/⌘V 必须放在 `INPUT/SELECT` focus 守卫**之后**——焦点在输入框时应复制文本而不是关键帧；而 ⌘Z/⌘Y 在守卫之前（输入框内也允许撤销）。模板 keydown 用 `e.key.toLowerCase()` 匹配（`k === 'c'/'x'/'v'`），工作台用 `e.code === 'KeyC'` 等，两种写法等价。
+7. **UI**：工具栏加「📋 粘贴关键帧」按钮（调 `pasteSelection()`，鼠标党友好）+ 「⧉ 复制粘贴」hint 标签（tooltip 写清三个快捷键与"粘贴到播放头"语义）；顶栏 hint 长文案同步加 `⌘C/⌘X/⌘V` 说明。空剪贴板/无选择时 flashHint 引导而非静默失败。
+8. **值域天然安全**：剪贴板里 `v` 来自同轨道（min/max 不变），duration 变化只影响 t（已 clamp），无需再校验 v。
+
+## 十三、帧吸附 + Alt 滚轮缩放时间轴（模板已内置）要点
+
+1. **snapToFrame 单点收口**：`snapToFrame(t) = Math.round(t * PREVIEW_FPS) / PREVIEW_FPS`。只在一个辅助函数里做量化，所有入口统一调用：`seek()`（播放头/标尺/轨道/波形跳转全部经过它）、菱形拖动（主帧 t + 整组每帧 `g.k.t` 各自 snap）、双击轨道加帧、kf 编辑器改时间、`pasteSelection()`。**播放循环不受影响**——`loop()` 里播放推进直接改 `state.time` 不走 `seek()`，实况导出 `tick()` 同理。
+2. **吸附后 clamp 顺序**：`Math.min(duration, Math.max(0, snapToFrame(t)))`——先 snap 后 clamp，duration 本身不吸到帧边界（保留任意时长如 12.5s，帧号允许非整时间起点）。
+3. **Alt+滚轮锚点缩放**：`tlBody.addEventListener('wheel', e => { if (!e.altKey) return; e.preventDefault(); ... }, { passive: false })`。锚点算法：`tAt = (scrollLeft + clientX − bodyRect.left − NAMES_W) / px` → 改 px（×1.15 或 ÷1.15，round 到 5 与滑杆步长一致，clamp 30–500）→ `renderTimeline()` 后 `scrollLeft = max(0, NAMES_W + tAt × newPx − bodyX)`。**必须先 render 再设 scrollLeft**（scrollWidth 变了钳制才正确）。
+4. **锚点两边界钳制**：scrollLeft ∈ [0, maxScroll]。缩得太小/鼠标太靠左时锚点无法保持（内容起点被拉回视口左缘）——标准行为，不要为保锚点硬造负 scroll。验证脚本先 `scrollLeft = 250` 腾出余量再测。
+5. **方向键必须 preventDefault**：`ArrowLeft/Right` 不 `preventDefault()` 时浏览器默认行为会横向滚动 `#tl-body`（一次 40px）——粘性名字列（`position:sticky; left:0`，196px）随即盖住首列菱形，之后的点击/拖动全打到名字列上（`closest('.tl-name')` 拦截）。这是隐蔽 bug：逐帧几次后框选/拖动悄悄失灵。Space 键同理已 preventDefault。
+6. **验证容差**：`style.left` 经 CSSOM 序列化会**舍入到 ~0.001px**（"332.167px"），反推 t×30 会有 ~1e-4 帧误差——帧对齐断言容差取 **0.01 帧**（既容纳序列化舍入，又能抓出真实错位）。别用 1e-6。
+7. **验证锚点**：缩放前后各算一次 `(scrollLeft + 鼠标x − bodyLeft − NAMES_W) / px`，差 < 0.05s。Playwright 触发 Alt+滚轮：`keyboard.down('Alt')` → `mouse.wheel(0, ±240)` → `keyboard.up('Alt')`；普通滚轮（无 Alt）不应改变 px。
+8. **缩放状态持久化**：`state.px` 已在工程自动保存字段里（`scheduleAutosave()`），Alt 滚轮后记得同步 `inp-zoom` 滑杆值，否则 UI 与实际缩放脱节。
+
+## 十四、批量插值 + 粘贴默认线性 + 帮助看板（模板已内置）要点
+
+1. **批量插值 `setSelectionInterp(interp)`**：遍历 `state.sel`（天然支持框选多选），逐帧改 `k.interp`，一次 `snapshot()` 整体撤回，`renderTimeline()` 后选择高亮保留（renderDiamonds 读 `state.sel`）。入口校验 `['smooth','linear','step'].includes`；`state.sel` 为空时 flashHint 提示"先选中关键帧"。
+2. **工具栏下拉 `#sel-interp`**：占位项 `<option value="">∿ 批量插值…</option>`，change 事件取值执行后**立即 `e.target.value = ''` 复位**——否则第二次选同一类型不触发 change。注意该元素是 SELECT：keydown 的 INPUT/SELECT 守卫会拦截它聚焦时的快捷键，帮助看板的 Esc 关闭要放在守卫**之前**。
+3. **粘贴默认线性**：`upsertKey(item.id, t, item.v, 'linear')`——不继承源帧 interp。动机：粘贴通常用于"把某时刻的参数值复制到另一时刻"，平滑（Catmull-Rom）会让粘贴帧与邻帧之间产生过冲弯曲；线性 = 直线过渡，同值帧之间数值完全不变。用户要"保持不动"可再框选 → 批量插值 → 阶梯。
+4. **帮助看板**：`#help-overlay`（`position:fixed; inset:0; z-index:200` 遮罩 + 居中卡片，`display:none/flex` 切换）。三处关闭：✕ 按钮、`e.target === helpOverlay` 的遮罩点击（卡片内点击不冒泡关闭）、Esc（keydown 顶部判断 `helpOverlay.style.display === 'flex'`，**放在 INPUT/SELECT 守卫之前**——焦点在下拉框时 Esc 也能关）。卡片内容用 `.hsec` 分区网格（`repeat(auto-fit, minmax(270px,1fr))`）+ `user-select:text`（页面全局 no-select，帮助文字要能选中复制）。
+5. **验证插值断言（DOM-only）**：菱形 `title` 末尾格式 `（${interp}）`，用正则 `title.match(/（(\w+)）$/)` 提取；改插值后比对所有 `.diamond.selected` 的提取值。撤销恢复时先 `waitForTimeout(600)` 越过快照手势合并窗口（snapshot 对 500ms 内同一 gesture 的连续变更会合并）。
+6. **验证粘贴默认线性**：找源帧用 `/（smooth）$/.test(title)` 定位 → 单击选中 → ⌘C → 点标尺移动播放头到**无帧间隙**（取相邻帧中心点中点，避免 upsert 覆盖既有帧导致数量不变）→ ⌘V → 断言 `.diamond.selected` 的 title 为 `（linear）` 且总数 +1。
+
+## 十五、自定义背景色（模板已内置）要点
+
+1. **实现**：`setBackgroundColor(colorStr)` 直接 `scene.background = new THREE.Color(colorStr)`（工作台 renderer 建在 `alpha:true`，但 scene.background 有值时完全不透明；背景色**不经 ACES tone mapping**，是渲染器的 clearColor 直出，色值贴近原色）。模板带 `scene.fog`（`Fog(默认色, 40, 90)`）——背景改纯色时必须同步 `scene.fog.color`，否则纯白背景下远处物体被近黑雾罩住发暗。
+2. **UI**：顶栏「🎨 背景」`<select id="sel-bg">`（占位项 + 预设：默认/纯黑/纯白/纯绿抠像）+ `<input type="color" id="bg-color">` 自定义。两个联动技巧：下拉 change 后**立即复位 `value=''`**（复用批量插值下拉的教训）；自定义色板走 `input` 事件（拖色板连续触发）**不加 flashHint**，预设下拉才 flashHint 提示名称。
+3. **预设值语义**：工作台默认背景 `#0b1526`（深空蓝）、模板默认 `#05070d`（近黑）——`BG_PRESETS` 与 `sanitizeProject` 的兜底默认值、`newProject` 复位值必须跟各自默认一致，别写死成对方的。`select` 值同步：预设色时显示对应 option，自定义色时复位占位项。
+4. **工程持久化**：`serializeProject` 写 `bgColor: '#' + scene.background.getHexString()`；`sanitizeProject` 用 `/^#[0-9a-f]{6}$/i.test` 校验（非法回退默认）；`applyProjectData` 调 `setBackgroundColor(p.bgColor)`（随自动保存/刷新/打开工程恢复）；`newProject` 复位默认。网格按钮、背景色互不耦合——纯色抠像时用户自己关网格。
+5. **验证（像素采样）**：WebGL canvas 不能直接 `getContext('2d')`，用临时 2d canvas `drawImage` 拷贝后再 `getImageData` 取像素（`preserveDrawingBuffer:true` 保证 toDataURL/drawImage 可用）。采样点取 **canvas 左上角 (8,8)**——场景内容（液柱/网格/扫描面）在画面中部，角落必是纯背景。验证断言：默认 `[11,21,38]`、纯黑 `[0,0,0]`（容差 ±60）、纯白 `[255,255,255]`（±60）、纯绿 `#00b140 → [0,177,64]`（±55）、自定义红 `[255,0,0]`（±55）。切换后 `waitForTimeout(500)` 等渲染。注意 `file://` 协议下 ES module 被 CORS 拦截 app.js 根本不加载——**必须起本地 http server 验证**（`python3 -m http.server <port>`），之前多轮验证都吃过这个亏。
+6. **范围**：背景色是全局设置（非关键帧轨道），随工程保存；预览与导出（WebCodecs 逐帧/MediaRecorder）共用同一 renderer，背景自动进入导出画面，绿幕抠像零额外配置。
