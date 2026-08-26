@@ -68,3 +68,13 @@ agent_created: true
 - **工程管理（自动保存 + 文件导入导出）**：所有编辑（关键帧/时长/播放头/视角/网格/画幅框/音频元数据）经 `scheduleAutosave()` 防抖 600ms 写入 localStorage，**刷新页面自动恢复全部状态**（`tryRestoreAutosave()` 必须在 `buildTimeline()` 之前调用）；「💾 保存工程」下载 `.json` 工程文件（含 app 标识、version、duration/time/px/loop/view/lookAtTarget/gridVisible/frameVisible、全部 keys、音频峰值元数据）；「📂 打开工程」或**直接把 .json 拖进页面**即可恢复（导入后清空撤销栈）；「🗑 新建」重置为默认演示动画；非法文件校验（app 标识 + keys 结构）后拒绝且不影响当前状态。音频本体（文件流）不序列化——恢复后波形可显示但需重新导入才能播放/混音（`metaOnly` 标志）
 
 详细实现说明与已踩过的坑见 `references/implementation-notes.md`。
+
+## 更新源（实时更新）
+
+本技能发布在公开仓库 **https://github.com/SwingPigeon/site-animation-keyframer**，每次迭代后自动推送。保持最新：
+
+```bash
+cd ~/.workbuddy/skills/site-animation-keyframer && git pull
+```
+
+（或在仓库页面 Code → Download ZIP 手动更新；详情见仓库 README。）
