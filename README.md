@@ -20,6 +20,17 @@ cd ~/.workbuddy/skills/site-animation-keyframer && git pull
 
 每次迭代后都会推送新版本（commit 号见 git log）。如果你想要完全自动的更新，可用 WorkBuddy 自动化每日执行上面的 `git pull`。
 
+## 在线演示（本技能产出的工作台实例）
+
+用本技能制作的真实演示页面，可在线体验：
+
+| 演示 | 说明 | 在线地址 |
+|---|---|---|
+| 🚿 **射流轴交换 · Axis Switching 动画工作台** | 水流经非圆孔喷出后形成"锁链状"水柱的物理模拟 → 全参数关键帧动画工作台（时间轴/导出视频/帮助看板） | https://swingpigeon.github.io/axis-switching-workbench/ |
+| 📐 **圆锥曲线动画工作台** | 椭圆/双曲线/抛物线等圆锥曲线参数化动画演示工作台 | https://swingpigeon.github.io/conic-sections-workbench/ |
+
+> 两个演示均由本技能（模板复刻 + 关键帧工作台）制作，可作为"用这个技能能做出什么"的参考；对应技能仓库见 [axis-switching-workbench](https://github.com/SwingPigeon/axis-switching-workbench)。
+
 ## 目录结构
 
 ```
