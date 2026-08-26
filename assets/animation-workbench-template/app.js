@@ -16,25 +16,26 @@ const RULER_H = 30;
 // 1. 可打关键帧的参数轨道定义
 // ---------------------------------------------------------------------------
 const TRACKS = [
-  { g: '摄像机', id: 'camX', label: '位置 X', min: -30, max: 30, step: 0.1, def: 13 },
-  { g: '摄像机', id: 'camY', label: '位置 Y', min: 0.5, max: 30, step: 0.1, def: 8 },
-  { g: '摄像机', id: 'camZ', label: '位置 Z', min: -30, max: 30, step: 0.1, def: 14 },
-  { g: '摄像机', id: 'rotX', label: '旋转 X°', min: -180, max: 180, step: 1, def: -28 },
-  { g: '摄像机', id: 'rotY', label: '旋转 Y°', min: -180, max: 180, step: 1, def: 0 },
-  { g: '摄像机', id: 'rotZ', label: '旋转 Z°', min: -180, max: 180, step: 1, def: 0 },
-  { g: '摄像机', id: 'fov', label: '焦距 FOV', min: 15, max: 110, step: 0.5, def: 45 },
-  { g: '摄像机', id: 'tgtX', label: '视觉中心 X', min: -15, max: 15, step: 0.1, def: 0 },
-  { g: '摄像机', id: 'tgtY', label: '视觉中心 Y', min: -15, max: 15, step: 0.1, def: 0 },
-  { g: '摄像机', id: 'tgtZ', label: '视觉中心 Z', min: -15, max: 15, step: 0.1, def: 0 },
-  { g: '灯光', id: 'lightCount', label: '光线条数', min: 0, max: MAX_LIGHTS, step: 1, def: 3, integer: true },
-  { g: '灯光', id: 'lightIntensity', label: '光线强度', min: 0, max: 3, step: 0.01, def: 1.0 },
-  { g: '灯光', id: 'lightHeight', label: '光线高度', min: 1, max: 16, step: 0.1, def: 8 },
-  { g: '灯光', id: 'lightSpread', label: '排列宽度', min: 1, max: 22, step: 0.1, def: 12 },
-  { g: '沟槽表面', id: 'grooveDepth', label: '沟槽深度', min: 0, max: 1, step: 0.005, def: 0.35 },
-  { g: '沟槽表面', id: 'grooveAngle', label: '沟槽角度°', min: -180, max: 180, step: 1, def: 0 },
-  { g: '沟槽表面', id: 'grooveSpacing', label: '沟槽密度', min: 2, max: 90, step: 0.5, def: 30 },
+  // min/max = 滑杆手柄的常用调节范围；lo/hi = 数值框/拖拽可继续增减的安全边界（seg 枚举轨道不设，保持 clamp）
+  { g: '摄像机', id: 'camX', label: '位置 X', min: -30, max: 30, lo: -90, hi: 90, step: 0.1, def: 13 },
+  { g: '摄像机', id: 'camY', label: '位置 Y', min: 0.5, max: 30, lo: 0.1, hi: 90, step: 0.1, def: 8 },
+  { g: '摄像机', id: 'camZ', label: '位置 Z', min: -30, max: 30, lo: -90, hi: 90, step: 0.1, def: 14 },
+  { g: '摄像机', id: 'rotX', label: '旋转 X°', min: -180, max: 180, lo: -540, hi: 540, step: 1, def: -28 },
+  { g: '摄像机', id: 'rotY', label: '旋转 Y°', min: -180, max: 180, lo: -540, hi: 540, step: 1, def: 0 },
+  { g: '摄像机', id: 'rotZ', label: '旋转 Z°', min: -180, max: 180, lo: -540, hi: 540, step: 1, def: 0 },
+  { g: '摄像机', id: 'fov', label: '焦距 FOV', min: 15, max: 110, lo: 5, hi: 150, step: 0.5, def: 45 },
+  { g: '摄像机', id: 'tgtX', label: '视觉中心 X', min: -15, max: 15, lo: -45, hi: 45, step: 0.1, def: 0 },
+  { g: '摄像机', id: 'tgtY', label: '视觉中心 Y', min: -15, max: 15, lo: -45, hi: 45, step: 0.1, def: 0 },
+  { g: '摄像机', id: 'tgtZ', label: '视觉中心 Z', min: -15, max: 15, lo: -45, hi: 45, step: 0.1, def: 0 },
+  { g: '灯光', id: 'lightCount', label: '光线条数', min: 0, max: MAX_LIGHTS, lo: 0, hi: MAX_LIGHTS, step: 1, def: 3, integer: true }, // 上限=shader 数组 MAX_LIGHTS，不可超
+  { g: '灯光', id: 'lightIntensity', label: '光线强度', min: 0, max: 3, lo: 0, hi: 6, step: 0.01, def: 1.0 },
+  { g: '灯光', id: 'lightHeight', label: '光线高度', min: 1, max: 16, lo: 0.5, hi: 40, step: 0.1, def: 8 },
+  { g: '灯光', id: 'lightSpread', label: '排列宽度', min: 1, max: 22, lo: 0.5, hi: 60, step: 0.1, def: 12 },
+  { g: '沟槽表面', id: 'grooveDepth', label: '沟槽深度', min: 0, max: 1, lo: 0, hi: 1.5, step: 0.005, def: 0.35 },
+  { g: '沟槽表面', id: 'grooveAngle', label: '沟槽角度°', min: -180, max: 180, lo: -540, hi: 540, step: 1, def: 0 },
+  { g: '沟槽表面', id: 'grooveSpacing', label: '沟槽密度', min: 2, max: 90, lo: 1, hi: 200, step: 0.5, def: 30 },
   { g: '沟槽表面', id: 'grooveMode', label: '沟槽模式', min: 0, max: 1, step: 1, def: 0, integer: true, seg: ['平行拉丝', '同心圆'] },
-  { g: '沟槽表面', id: 'roughness', label: '表面粗糙度', min: 0, max: 1, step: 0.01, def: 0.3 },
+  { g: '沟槽表面', id: 'roughness', label: '表面粗糙度', min: 0, max: 1, lo: 0, hi: 1, step: 0.01, def: 0.3 },
 ];
 const TRACK_MAP = Object.fromEntries(TRACKS.map(t => [t.id, t]));
 
@@ -436,7 +437,7 @@ function commitValue(tr, raw) {
   snapshot();
   let val = parseFloat(raw);
   if (isNaN(val)) return;
-  val = Math.min(tr.max, Math.max(tr.min, val));
+  val = Math.min(tr.hi ?? tr.max, Math.max(tr.lo ?? tr.min, val));
   if (tr.integer) val = Math.round(val);
   upsertKey(tr.id, state.time, val);
   renderTimeline();
@@ -462,7 +463,7 @@ function makeScrub(el, tr) {
     const base = (tr.max - tr.min) / 200;
     const step = scrub.shift ? base * 0.1 : base;
     let val = scrub.startVal + dx * step;
-    val = Math.min(tr.max, Math.max(tr.min, val));
+    val = Math.min(tr.hi ?? tr.max, Math.max(tr.lo ?? tr.min, val));
     if (tr.integer) val = Math.round(val);
     commitValue(tr, val);
   });
@@ -546,7 +547,8 @@ const panelInputs = {}; // id -> {range, num, kfBtn, segBtns?}
         <div class="segbtns">${tr.seg.map((s, i) => `<button data-seg="${tr.id}" data-v="${i}">${s}</button>`).join('')}</div>${kfBtn}`;
     } else {
       row.innerHTML = `<div class="pname" title="${tr.label}">${tr.label}</div>
-        <input type="range" data-id="${tr.id}" min="${tr.min}" max="${tr.max}" step="${tr.step}"/>
+        <input type="range" data-id="${tr.id}" min="${tr.min}" max="${tr.max}" step="${tr.step}" title="常用调节范围手柄（可继续用右侧数值框/拖拽超出）"/>
+        <input type="number" data-id="${tr.id}" min="${tr.lo ?? tr.min}" max="${tr.hi ?? tr.max}" step="${tr.step}" title="可直接输入：可超出滑杆范围继续增减（安全边界 ${tr.lo ?? tr.min} ~ ${tr.hi ?? tr.max}）"/>
         <input type="number" data-id="${tr.id}" min="${tr.min}" max="${tr.max}" step="${tr.step}"/>${kfBtn}`;
     }
     panel.appendChild(row);
@@ -584,7 +586,8 @@ function syncPanel(v) {
   for (const tr of TRACKS) {
     const pi = panelInputs[tr.id];
     const val = v[tr.id];
-    if (pi.range && document.activeElement !== pi.range) pi.range.value = val;
+    if (pi.range && document.activeElement !== pi.range) pi.range.value = Math.min(tr.max, Math.max(tr.min, val));
+    if (pi.range) pi.range.classList.toggle('overflow', val < tr.min || val > tr.max);
     if (pi.num && document.activeElement !== pi.num) pi.num.value = tr.integer ? val : (+val).toFixed(2);
     if (pi.segs) pi.segs.forEach(b => b.classList.toggle('on', +b.dataset.v === Math.round(val)));
     // 时间轴左侧参数列的实时数值
@@ -1062,7 +1065,7 @@ document.getElementById('kf-value').addEventListener('change', e => {
   snapshot();
   const tr = TRACK_MAP[editing.trackId];
   let val = parseFloat(e.target.value) || 0;
-  val = Math.min(tr.max, Math.max(tr.min, val));
+  val = Math.min(tr.hi ?? tr.max, Math.max(tr.lo ?? tr.min, val));
   keysOf(editing.trackId)[editing.index].v = tr.integer ? Math.round(val) : val;
   renderTimeline(); applyAll(state.time);
 });
@@ -1215,7 +1218,7 @@ const btnSyncCam = document.getElementById('btn-sync-cam');
 let syncToastTimer = null;
 function clampTrack(id, v) {
   const tr = TRACK_MAP[id];
-  return Math.min(tr.max, Math.max(tr.min, v));
+  return Math.min(tr.hi ?? tr.max, Math.max(tr.lo ?? tr.min, v));
 }
 function syncFreeViewToKeys() {
   snapshot();
@@ -1807,7 +1810,7 @@ function sanitizeProject(data) {
     for (const k of data.keys[id]) {
       const t = +k.t, v = +k.v;
       if (!isFinite(t) || !isFinite(v)) continue;
-      let cv = Math.min(tr.max, Math.max(tr.min, v));
+      let cv = Math.min(tr.hi ?? tr.max, Math.max(tr.lo ?? tr.min, v));
       if (tr.integer) cv = Math.round(cv);
       const interp = (k.interp === 'linear' || k.interp === 'step') ? k.interp : (tr.seg ? 'step' : 'smooth');
       arr.push({ t: Math.min(p.duration, Math.max(0, t)), v: cv, interp });
