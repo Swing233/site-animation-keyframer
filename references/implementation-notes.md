@@ -201,3 +201,11 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 3. **实时参考色块**：每行 `output` 后加 `<span class="swatch"><i></i></span>`；CSS 棋盘格（`conic-gradient` 8px 方格）模拟透明底 + `i` 覆盖 `hexToRgba(color, opacity)`（`rgba(r,g,b,a)`）；`updateSwatch(el)` 在配色 input/change 事件与 `syncColorPanel()` 打开时调用。**不要用 `<input type=color>` 自带的色块当透明度参考**（无透明信息）。
 4. **手势合并**：配色拖动（range input 连续事件）复用 snapshot 的 500ms 合并窗口，一次拖动 = 一步撤销（无需 beginGesture）。
 5. **验证（Playwright）**：swatch `style.background` 含 `rgba(255, 0, 255, 0.5)`；改网格色后 ⌘Z → 面板 value 回 `#1d2f52` 且 swatch 回 `rgba(29, 47, 82, 0.8)`；重置后全部默认；重置后 ⌘Z 回品红。快捷键 `process.platform==='darwin' ? 'Meta+z' : 'Control+z'`。
+
+## 二十一、配色面板：当前时间线画面预览要点
+
+1. **复用主 canvas（不建第二个 WebGL context）**：`colorPreviewCanvas` 是面板里的 2D canvas（480×270）；`syncColorPreview()` 用 `colorPreviewCtx.drawImage(renderer.domElement, ...)` 复制当前帧。**前提**：`WebGLRenderer({ preserveDrawingBuffer: true })`（已为 PNG 导出开启）—— 否则 WebGL buffer 在合成后清空，drawImage 读到空帧。
+2. **contain 等比缩放**：`scale = min(pw/cw, ph/ch)`；dw=cw*scale, dh=ch*scale；drawImage(..., (pw-dw)/2, (ph-dh)/2, dw, dh) 居中。
+3. **150ms 定时**：`setInterval(syncColorPreview, 150)`，面板打开启动（`toggleColors(true)`）、关闭停止（`clearInterval`），避免后台空转。打开时**立即**调一次 `syncColorPreview()`（避免等 150ms 才出图）。
+4. **棋盘格背景**：CSS `conic-gradient` 8~10px 方格 + 预览 canvas 透明——改液柱/截面透明度时直接看到透明效果。
+5. **swiftshader 局限**（已存在非本次引入）：headless swiftshader 下改网格颜色/透明度后**主 canvas 渲染异常**（v2.3 已存在现象，verify_color_reset 6/6 PASS 未覆盖主画面像素）；预览功能本身（drawImage 复制 + setInterval）正常工作——state_panel.png 清晰显示预览有画面+9 色块。**真实浏览器（GPU 加速）下无此问题**。
