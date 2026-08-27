@@ -209,3 +209,9 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 3. **150ms 定时**：`setInterval(syncColorPreview, 150)`，面板打开启动（`toggleColors(true)`）、关闭停止（`clearInterval`），避免后台空转。打开时**立即**调一次 `syncColorPreview()`（避免等 150ms 才出图）。
 4. **棋盘格背景**：CSS `conic-gradient` 8~10px 方格 + 预览 canvas 透明——改液柱/截面透明度时直接看到透明效果。
 5. **swiftshader 局限**（已存在非本次引入）：headless swiftshader 下改网格颜色/透明度后**主 canvas 渲染异常**（v2.3 已存在现象，verify_color_reset 6/6 PASS 未覆盖主画面像素）；预览功能本身（drawImage 复制 + setInterval）正常工作——state_panel.png 清晰显示预览有画面+9 色块。**真实浏览器（GPU 加速）下无此问题**。
+
+## 二十二、孔板（水流开始平台）显示开关要点
+
+1. **实现**：模块级 `let plateVisible = true`（随工程持久化）+ 顶栏 `btn-plate` 按钮（仿 btn-grid/btn-frame 模式）；`jet` 暴露 `get plateGroup()`；`buildPlate()` 创建时 `plateGroup.visible = plateVisible`（**重建后不丢状态**）；serialize `plateVisible` / sanitize `!== false` / applyProjectData / newProject 全链路。
+2. **⚠️ TDZ 坑（本次踩到）**：`let plateVisible` 声明在文件中部（按钮绑定处）会导致 jet IIFE 内 `buildPlate`（文件前部、页面加载时先于声明执行）访问时抛 `ReferenceError: Cannot access 'plateVisible' before initialization`——**并且异常发生在 jet.rebuild（初始化早期），会中断整个初始化链**（后续所有 addEventListener 都不执行，按钮无响应、loop 不启动，页面"看起来正常"但功能全废）。**模块级 let 变量若被前部代码（jet IIFE/buildPlate 等）引用，声明必须放在文件最顶部（colors 定义附近）**。
+3. **验证（Playwright）**：按钮默认 on；click 后 class 移除 on；localStorage `plateVisible:false`；刷新后仍隐藏；再点击恢复。**注意**：`page.evaluate(btn.click())` 与 `page.click` 等价（都触发 listener）；若点击后 class 不变，优先查 pageerror——TDZ 这类初始化中断错误会显示在 pageerror。
