@@ -187,3 +187,9 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 3. **移除 WebM**：UI `exp-format` 删 `webm` 选项；`btn-export` 兜底 `if (!MP4_OK && value==='mp4') value='mov'`；`exp-start` 分支改 `mp4||mov`；内部 `wantWebm`/pickVideoMime/loadMuxerLib(MUXER_CDN.webm)/webm-muxer 代码保留为不可达兜底（不删以免动面大，但 UI 不再暴露）。
 4. **面板联动**：`exp-format` change → `exp-mix-row`（mp4/mov + 有音频时显示）、`exp-alpha-row`（仅 png 显示）；`btn-export` 打开时同样同步。
 5. **验证（Playwright + 下载文件解析）**：`page.waitForEvent('download')` + `saveAs` 捕获导出文件。PNG 透明验证：python `zipfile` 解 ZIP → 手工解析 PNG（IHDR color type 6=RGBA → zlib 解 IDAT → **逐行 unfilter**（filter byte + Paeth 等 5 种滤波）→ 读像素）——断言四角 alpha=0 且 t=1s 帧中心（液柱）alpha>200；**注意** t=0 帧液柱未生长（frontProgress=0），中心也是透明，取中间帧断言。MOV 验证：文件名 `.mov` + 前 8 字节 `000000xx ftyp`（ISO BMFF）。Playwright `selectOption` 要求元素可见（export-modal 需先打开）。
+## 十九、自定义导出文件名（口播名 > 模拟器+日期）要点
+
+1. **命名优先级**：`exportBaseName()` = `exp-name` 输入框（trim + sanitizeName 清理 `\ / : * ? " < > |`）→ 为空时 `defaultExportBase()`：有口播（`audioState.ready && audioState.name`）用音频文件名去扩展名（`audioState.name.replace(/\.[^.]+$/, '')`），否则 `SIM_NAME + '_' + todayStr()`（YYYY-MM-DD 本地时区）。
+2. **填充时机**：`btn-export` 打开面板时若输入框为空才填默认（`if (!nameInput.value.trim()) nameInput.value = defaultExportBase();`）——用户自定义后重开面板保留，清空则回默认。
+3. **文件名结构**：导出文件名 = `${exportBaseName()}_${w}x${h}_${fps}fps.${ext}`（保留分辨率/fps 后缀便于区分多版本导出）；混音导出 = `${base}_voice_...`；PNG 序列 = `${base}_..._序列帧[_透明].zip`。工程 json 下载名独立（axis-switching_工程_时间戳）。
+4. **验证（Playwright）**：无口播打开面板 → `#exp-name` value 匹配 `^axis_switching_\d{4}-\d{2}-\d{2}$`；填自定义名导出 MOV → download.suggestedFilename() 以自定义名开头；自定义名重开面板保留。口播分支逻辑简单（audioState.name 去扩展名），importAudio 时 name: file.name。
