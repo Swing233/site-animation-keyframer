@@ -193,3 +193,11 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 2. **填充时机**：`btn-export` 打开面板时若输入框为空才填默认（`if (!nameInput.value.trim()) nameInput.value = defaultExportBase();`）——用户自定义后重开面板保留，清空则回默认。
 3. **文件名结构**：导出文件名 = `${exportBaseName()}_${w}x${h}_${fps}fps.${ext}`（保留分辨率/fps 后缀便于区分多版本导出）；混音导出 = `${base}_voice_...`；PNG 序列 = `${base}_..._序列帧[_透明].zip`。工程 json 下载名独立（axis-switching_工程_时间戳）。
 4. **验证（Playwright）**：无口播打开面板 → `#exp-name` value 匹配 `^axis_switching_\d{4}-\d{2}-\d{2}$`；填自定义名导出 MOV → download.suggestedFilename() 以自定义名开头；自定义名重开面板保留。口播分支逻辑简单（audioState.name 去扩展名），importAudio 时 name: file.name。
+
+## 二十、配色重置 + 撤回 + 实时参考色块要点
+
+1. **配色纳入撤销栈**：`snapshot()` 的快照从 `cloneKeys()` 升级为 `{ keys: cloneKeys(), colors: cloneColors() }`（cloneColors = `JSON.parse(JSON.stringify(colors))`，colors 很小无性能问题）；`undo()/redo()` 恢复 `state.keys` + `Object.assign(colors, snap.colors)` + `applyColors()` + `syncColorPanel()`。**注意**：关键帧操作（commitValue/upsert 等）也走 snapshot，会顺带快照 colors（冗余但无害）。
+2. **重置配色**：`resetColors()` = `snapshot()`（进入撤销栈，重置可撤回）→ `Object.assign(colors, JSON.parse(JSON.stringify(COLOR_DEFAULTS)))` → `applyColors()` → `syncColorPanel()` → `scheduleAutosave()` → flashHint 提示可撤回。
+3. **实时参考色块**：每行 `output` 后加 `<span class="swatch"><i></i></span>`；CSS 棋盘格（`conic-gradient` 8px 方格）模拟透明底 + `i` 覆盖 `hexToRgba(color, opacity)`（`rgba(r,g,b,a)`）；`updateSwatch(el)` 在配色 input/change 事件与 `syncColorPanel()` 打开时调用。**不要用 `<input type=color>` 自带的色块当透明度参考**（无透明信息）。
+4. **手势合并**：配色拖动（range input 连续事件）复用 snapshot 的 500ms 合并窗口，一次拖动 = 一步撤销（无需 beginGesture）。
+5. **验证（Playwright）**：swatch `style.background` 含 `rgba(255, 0, 255, 0.5)`；改网格色后 ⌘Z → 面板 value 回 `#1d2f52` 且 swatch 回 `rgba(29, 47, 82, 0.8)`；重置后全部默认；重置后 ⌘Z 回品红。快捷键 `process.platform==='darwin' ? 'Meta+z' : 'Control+z'`。
