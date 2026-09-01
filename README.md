@@ -1,4 +1,4 @@
-# site-animation-keyframer — WorkBuddy 技能
+# site-animation-keyframer
 
 **网站现象复刻 + 全参数关键帧动画工作台**：把一个 Three.js/WebGL 交互演示网站改造成"可编排动画、可导出视频"的工作台。内置完整交互（播放头 scrub、关键帧编辑/框选/复制粘贴、帧吸附、批量插值、背景色、撤销重做、帮助看板、音频波形对齐、工程自动保存、MP4/WebM/PNG 序列导出）。
 
