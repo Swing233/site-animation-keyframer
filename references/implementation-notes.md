@@ -237,5 +237,17 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 3. **自由视角旋转中心（freePivot）**：模块级 `let freePivot = new THREE.Vector3(0, -L0/2, 0)`；`refreshFreePivot()`：`dist = max(20, camera.position.distanceTo(controls.target))`，`freePivot = camera.position + camForward() × dist`（相机前方视线点）。**取消看向后 controls.target 不再等于视觉中心**——自由旋转围绕视线方向而不是视觉中心（视觉中心是场景物体位置，取消看向后继续绕它转不符合直觉）。`applyAll()` 摄像机分支：`driveCamera` 时 `state.lookAtTarget ? controls.target.set(tgt...) : controls.target.copy(freePivot)`；`setView('free')` 时若 `!lookAtTarget` 先 `refreshFreePivot()`（切自由视角的瞬间重新取视线点）。
 4. **自由视角自动同步**：OrbitControls `start/end` 事件——`end` 时（阻尼稳定后）比较 `controls.target` 与拖动前快照的位移，`>0.05` 判定为"机位动了"：`syncFreeViewToKeys()`（位置 + 旋转欧拉写入关键帧）+ `setView('camera')` 自动切回摄像机视角（状态栏提示「机位已同步到关键帧并切回摄像机视角」）。**同步视角不偏移视觉中心**：`syncFreeViewToKeys()` 在非"看向"模式只写 camX/Y/Z + rotX/Y/Z，**不再写 tgtX/Y/Z**（原实现会把 controls.target 写回 tgt，导致视觉中心被拖走——取消看向后 target 是 freePivot 不是视觉中心，写回即偏移）。
 5. **X 键删除**：键盘监听在 Delete/Backspace 之外加 `e.key === 'x' || e.key === 'X'`（`deleteSelection()`）；帮助面板、状态栏、快捷键速查同步更新。
-6. **Shift 时间线吸附（临时反转）**：`snapTargetT()` 开头 `const snap = shiftHeld ? !kfSnapOn : kfSnapOn`——复用 v2.7 的全局 `shiftHeld` 监听，吸附开关开时按住 Shift 临时不吸（自由摆放），关时按住 Shift 临时吸附（偶尔对齐）；`btn-kf-snap` 的 title 加「Shift 临时反转」提示。**不引入第二个开关**，Shift 状态实时读取无需额外状态同步。
+6. **Shift 时间线吸附（v2.8 实现，v2.9 已替换）**：v2.8 用 `snapTargetT()` 开头 `const snap = shiftHeld ? !kfSnapOn : kfSnapOn` 实现"Shift 临时反转吸附开关"（开→临时不吸，关→临时吸）。**v2.9 起废弃该语义**——用户要求"精细操作改为按住 Shift 拖动"，Shift 拖动关键帧改为精细微调（见二十六节），`snapTargetT` 不再读 `shiftHeld`（`const snap = kfSnapOn`）。
 7. **验证（Playwright 21/21）**：拾取模式（按钮点击进入 → body 有 picking class → 点击 canvas 命中 → 当前时间 tgtX 关键帧值 ≈ 命中点 x → 自动退出）；X 键删除（选中帧后按 x → 帧消失）；Shift 吸附 4 场景（开+Shift 不吸 / 关+Shift 吸 / 关不吸 / 开吸附）；取消看向不跳变（**逐像素验证**：取消勾选前后 `canvas.toDataURL()` 完全一致——swiftshader headless 下同帧渲染确定性强，注意要在渲染静止帧后采样；同时断言 rotX 关键帧被写入、切自由视角画面不变、自由视角旋转时旋转中心是视线点而非视觉中心——通过旋转后 tgt 关键帧值不变断言）；自由视角自动同步（拖动相机松手 → 自动切回 camera 视角 + camX 关键帧值变化）。**测试易错点**：时间线在视口下方（y>900）需先 `scrollIntoViewIfNeeded()` 否则鼠标事件落空；断言"吸附"用「原位置帧消失」而非「目标帧存在」（目标轨道本就有帧会误报）。
+
+## 二十六、Shift 拖动关键帧 = 精细微调（v2.9）要点
+
+1. **需求本质**：用户要求「精细操作改为按住 Shift 拖动」——把"精细操作"（关键帧拖动改时间）的触发方式统一为 Shift，与 v2.7 数据条 Shift 细调（1/10 步进）同一全局语义（Shift = 精细）。**同时废弃 v2.8 的"Shift 临时反转吸附"**（反转语义不符合用户直觉，用户明确纠正）。Shift 现在在时间线的含义：精细微调（1/10 速度 + 亚帧网格 + 不吸附），吸附开关的 on/off 只管普通拖动。
+2. **实现**：
+   - `snapFine(t)`：`Math.round(t * PREVIEW_FPS * 10) / (PREVIEW_FPS * 10)` —— 亚帧网格（30fps → 1/300s），与 `snapToFrame`（1/30s）并列。
+   - `snapTargetT()`：删除 `shiftHeld` 反转逻辑 → `const snap = kfSnapOn;`（Shift 精细模式根本不调用它，双重保险）。
+   - `pointerdown`：drag 对象加 `startX: e.clientX`（拖动起点屏幕 X，精细模式的位移基准）。
+   - `pointermove`：`shiftHeld` 时走精细分支——主帧 `t = snapFine(main.initT + (e.clientX - drag.startX) / (state.px * 10))`（**1/10 拖动速度**：位移÷10，鼠标移动 10px 才产生 1px 的时间变化，可精确停在任意细位置；以起点时间为基准而非 lane rect，避免起始不对齐误差），跳过 `snapTargetT`；非 Shift 走原逻辑（snapToFrame + 跨轨道吸附）。整组移动时组内成员也用 `snapFine`（`(shiftHeld ? snapFine : snapToFrame)(...)` 统一处理），保持组内相对偏移且落在亚帧网格。
+3. **UI 文案**：`btn-kf-snap` title、帮助面板「移动」「🧲 关键帧吸附」两条、状态栏 hint（`Shift+拖动 精细微调`）、快捷键速查（`Shift+拖动菱形 精细微调`）全部更新；**注意删除「临时反转」残留文案**（v2.8 遗留）。
+4. **与框选不冲突**：Shift+空白拖动 = 追加框选（目标在轨道空白处），Shift+菱形拖动 = 精细微调（目标在 diamond 上，pointerdown 已 stopPropagation）——同一 Shift 键两个入口按命中目标分流。
+5. **验证（Playwright 8/8）**：吸附开关默认 on；回归·普通拖动（开）8.1→8.05 吸到 8.0；Shift 拖动（开）10.5 左移 10px → 10.49（期望 `round((10.5-10/950)*300)/300`，非 1/30 整数帧、未吸附——吸附开也不吸）；关开关后 Shift 拖动 → 亚帧网格（`nearInt(t,300)` 且 `!nearInt(t,30)`）；回归·普通拖动（关）→ 仅帧吸附 10.4333 不跨轨道；无 pageerror；清理后恢复默认。**测试易错点**：Shift 用 `page.keyboard.down('Shift')`（拖动前按下、pointerup 后松开）；帧时间随排序 index 变化 → 用 `kfNear(lane, t)` 按时间找最近帧再拖，不要写死 data-index。
