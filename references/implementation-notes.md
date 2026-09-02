@@ -276,3 +276,24 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 3. **xray 穿透显示**：TRACKS 加 `{ g:'液柱显示', id:'xray', label:'穿透显示', min:0, max:1, step:1, def:1, integer:true, seg:['关','开'] }`。`applyXray()` 复用原 applyDim 逻辑（`xrayOn ? transmission 0 / opacity 0.304 / depthWrite false : transmission 0.85 / opacity 1 / depthWrite true`），`setXray(on)` 供 applyAll 调用。**默认开（def:1）** = 原"开启截面扫描"的材质。applyJetColors 里 jetMat/solidMat/wireMat/cageMat 的 opacity 都乘 `(xrayOn ? ... : ...)` 分支。
 4. **sectionOpacity 截面透明度**：TRACKS 加 `{ g:'液柱显示', id:'sectionOpacity', label:'截面透明度', min:0, max:1, step:0.01, def:1 }`。`updateScan` 创建 `sectionMesh` 时 `opacity: sectionOpacity`（替代 `colors.planes.sectionFill.opacity`）；`setSectionOpacity(v)` 只改 `sectionMesh.material.opacity`（**不动 sectionHalo/sectionLine**）；applyJetColors 里 sectionMesh opacity 同步用 `sectionOpacity`。
 5. **⚠️ swiftshader 透明度渲染局限**：headless swiftshader 下改 `MeshBasicMaterial.opacity` 后主 canvas 几乎不刷新（改透明度只 1px 像素变化），**功能本身正确**（`sectionMesh.material.opacity` 已正确更新为 0.1，用临时 `window.__dbgSection` 钩子验证后删除）。真实浏览器 GPU 下正常。**验证材质类改动不要依赖 swiftshader 的像素对比**——改 transmission（MeshPhysicalMaterial）能刷新（7447px），改 BasicMaterial opacity 不刷新。用「读材质值」断言而非「读画面」。
+
+## 三十、扫描框 + 截面 透明度合并为一条统一轨道（sectionOpacity 升级为整体乘数）要点
+
+1. **需求本质**：v2.12 的「截面透明度」只控高亮填充（sectionMesh），白框线和衬板仍是硬编码基准（0.9 / 0.12），调低时只有彩色填充变淡、白框不联动，视觉割裂。**用户感知到「扫描框」与「截面」本应是一个整体**，要求合并为一条参数柄统一驱动两者一起淡入淡出。
+2. **方案：sectionOpacity 升格为整体乘数**：不再"只改填充"，而是 `v ∈ [0,1]` 乘到扫描组内 5 个半透明元素各自的基准值上：
+   - 白框线 `scanBoxMat.opacity = colors.planes.scan.opacity * v`（基准 0.9）
+   - 衬板 `scanPlaneMat.opacity = SCAN_PLANE_OPACITY * v`（**抽常量** SCAN_PLANE_OPACITY = 0.12，原硬编码字面量提到模块顶部）
+   - 高亮填充 `sectionMesh.material.opacity = colors.planes.sectionFill.opacity * v`（基准 1）
+   - 光晕 `sectionHalo.material.opacity = colors.planes.sectionHalo.opacity * v`（基准 0.38）
+   - 轮廓 `sectionLine.material.opacity = colors.lines.section.opacity * v`（基准 1）
+   v=1 时与现状逐位一致（无回归）；v=0 时整组隐藏（白框线+衬板+填充+光晕+轮廓全 0）。
+3. **集中函数 `applySectionOpacity()`**：把上面 5 个赋值收敛为一个函数，`setSectionOpacity(v)` 内部 `applySectionOpacity()` 统一刷新——避免基准与乘法在多处漂移。`applyJetColors()` 末尾（scanBoxMat/scanPlaneMat 段之后）也调一次 `applySectionOpacity()`，保证 colors 刷新时透明度同步更新（scanBoxMat/scanPlaneMat 段去掉原 opacity 赋值，仅保留 color set）。
+4. **重建一致性**：`updateScan` 重建 sectionMesh/halo/line 时初始 opacity 也用 `基准 * sectionOpacity`（原 `opacity: sectionOpacity` 仅对 fill 有效，对 halo/line 是 0.38/1 硬编码），防止重建瞬间闪回基准。
+5. **轨道改名**：`label: '截面透明度'` → `'扫描框/截面透明度'`，并在轨道定义后 inline 注释 "合并乘数：白框线/衬板/高亮填充/光晕/轮廓一起淡入淡出"，让用户看到轨道名就知道作用域。**id 保持 `sectionOpacity` 不变**——工程文件按 track id 持久化（state.statics / state.keys），改 id 会让旧工程该关键帧失效。
+6. **验证（Playwright 0 报错）**：headless Edge + swiftshader 下开扫描后，设 slider 0.3 → 0.6 → 0 → 1.0 四档，**通过临时 `window.__SEC_DBG` 钩子读闭包内材质**（5 个 opacity + visible），结果：
+   - v=0.3：box 0.27 / plane 0.036 / fill 0.3 / halo 0.114 / line 0.3 ✓
+   - v=0.6：box 0.54 / plane 0.072 / fill 0.6 / halo 0.228 / line 0.6 ✓
+   - v=0：全 0 ✓
+   - v=1.0：box 0.9 / plane 0.12 / fill 1 / halo 0.38 / line 1 ✓ 无回归
+   - 无 pageerror/console error；UI 文本含"扫描框/截面透明度"
+   **测试技巧**：闭包内变量读不到 → 临时 `window.__SEC_DBG` 开关 + setSectionOpacity 内写 `window.__SEC_SNAP`，断言后删除钩子。**像素对比在 swiftshader 下不可信**（见二十九），必须读材质值。
