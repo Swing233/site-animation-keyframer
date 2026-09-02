@@ -297,3 +297,21 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
    - v=1.0：box 0.9 / plane 0.12 / fill 1 / halo 0.38 / line 1 ✓ 无回归
    - 无 pageerror/console error；UI 文本含"扫描框/截面透明度"
    **测试技巧**：闭包内变量读不到 → 临时 `window.__SEC_DBG` 开关 + setSectionOpacity 内写 `window.__SEC_SNAP`，断言后删除钩子。**像素对比在 swiftshader 下不可信**（见二十九），必须读材质值。
+
+## 三十一、导出帧被主渲染循环覆写（PNG/透明序列 4K 错帧）— 导出渲染竞态修复要点
+
+1. **症状（用户报告）**：1080P→4K 切分辨率后，**MP4/MOV 导出正常，PNG 序列 / 透明 PNG 序列导出的图不对**（用户描述"像只截取了画面的一部分"，也可能是错帧/全为播放头静止帧）。
+2. **根因**：主渲染循环 `loop()`（requestAnimationFrame 每帧 `applyAll + renderer.render`）**没有 `exporting` 短路**，导出期间仍在渲染。三种导出取帧方式窗口不同：
+   - **WebCodecs MP4（frameAccurateExport）**：`renderer.render()` 后**同一同步 tick** 内 `new VideoFrame(canvas)` 捕获 → rAF 无机会插队 → 正常；
+   - **PNG 序列**：`renderer.render()` 后 `await canvas.toBlob()`——**异步**读 drawing buffer，4K 下 PNG 编码耗时几十~几百 ms，期间 rAF 主循环必然插队用播放头画面（导出开始时 `setPlaying(false)` → `state.time` 冻结的静止帧）**覆写 drawing buffer** → toBlob 拿到错帧/残缺画面。1080P 编码快、插队概率低所以"基本正常"，4K 概率接近 100%。
+   - MediaRecorder/captureStream 录制路径同样可能被主循环交替渲染污染（一半帧是静止预览）。
+3. **修复（3 行 + 注释）**：`loop()` 中在 `controls.update()/applyAll/renderer.render` 前加：
+   ```js
+   if (exporting) return;  // 导出期间让导出循环独占 canvas，避免 rAF 覆写 drawing buffer
+   ```
+   **注意放置位置**：必须在 `if (state.playing){...}` 播放推进块与 `syncAudioTime()` **之后**——`exportLiveVoice`（口播实时录制）依赖主循环推进 `state.time = audioState.el.currentTime` 与结束判定，短路放最前面会卡死混音录制。放渲染段之前即可（播放推进照常、渲染让出）。
+   - PNG 循环 / frameAccurateExport / recordingExport / exportLiveVoice 都设置 `exporting=true`，一改四路全受益。
+4. **验证与复现局限（⚠️）**：headless（Playwright + Edge + swiftshader）**无法复现该竞态**——后台/无焦点页 rAF 被浏览器节流甚至暂停，toBlob 期间无 rAF 插队，导出的帧 hash 全部唯一（看起来"正常"）。因此该修复靠**逻辑论证 + 修复后回归**确认：
+   - 回归：修复后 4K（3840×2160）PNG 序列 30 帧全部导出成功、逐帧 hash 唯一、0 pageerror；4K 透明序列 420 帧（14s@30fps）RGBA 导出成功、hash 全唯一、无 pageerror。
+   - **教训：导出/渲染竞态类 bug 用 headless 自动化容易误判"无问题"**，必须审代码找竞态窗口（异步取帧 vs 持续渲染）。
+5. **其它被排除的假说（排查过程记录）**：① DPR 放大 buffer（导出 canvas 变 8K）——已排除：renderer 初始化时 `setPixelRatio(1)`（app.js 顶部），导出 setSize(3840,2160) 的 buffer 恰为 4K（headless 实测 PNG 3840×2160）；② toBlob 尺寸错误——实测尺寸正确；③ JSZip 全内存打包 4K 长序列内存爆——真实存在的次生风险（420 帧 4K RGBA ~190MB zip 可完成），但非本症状主因。
