@@ -330,3 +330,15 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
    - 浏览器安全策略不暴露完整路径，`#ps-loc` 只能显示最终文件名 `handle.name`（title 里提示已选定文件）。
 4. **状态清理**：`let projectFileHandle = null` 全局保存当前句柄；每次打开弹窗重置为 null（重新选择）；`AbortError`（用户在系统对话框取消）静默返回。保存成功 flashHint 区分"保存到「文件名」"与"浏览器下载目录"。
 5. **验证（Playwright 两 context）**：ctxA（addInitScript 删 showSaveFilePicker 模拟不支持）→ 打开弹窗：fs-note 可见、browse disabled、名称为 `axis-switching_工程_8位日期_4位时间`；填 `我的_自定义_工程名` 保存 → download 事件 suggestedFilename = `我的_自定义_工程名.json` ✓。ctxB（原生 FS OK + stub showSaveFilePicker 返回假 handle）→ fs-note 隐藏、browse enabled；点浏览后 `#ps-loc` = `落地_到_所选目录.json`、suggestedName = 预填名+.json；保存后 handle.write 收到含 `axis-switching-workbench` 标识的完整 JSON、writable close ✓、弹窗关闭 ✓。0 pageerror。
+
+## 三十三、导出分辨率「删 1080p、默认 4K」的连带点清单
+
+用户要求导出分辨率删除 1080p 选项、默认 4K。**这不是改一个 option 就完事**，全工作台有 5 处 1080 需要同步清理（教训：改默认分辨率要全链路查）：
+
+1. `index.html` 分辨率 select（`#exp-res`）：删除 `<option value="1920x1080">`，`3840x2160` 加 `selected`。720p 保留（低配预览档），自定义保留。
+2. `index.html` 自定义行预填 `#exp-w`/`#exp-h` `value=1920/1080` → `3840/2160`（选「自定义…」时的初始输入）。
+3. `index.html` 安全框初始标签 `#safe-label` 文本 `1920×1080` → `3840×2160`（ResizeObserver 触发前避免闪错）。
+4. `app.js` 导出启动 `#exp-start` 监听：`|| 1920` / `|| 1080` 兜底 → `3840/2160`。
+5. `app.js` `currentExportSize()`：自定义分支兜底 + 函数末尾 `return [1920, 1080]` → `[3840, 2160]`（安全框/预览用）。
+
+验证（Playwright Edge headless）：打开导出弹窗 → `exp-res.value === '3840x2160'`、options 无 `1920x1080`；切 custom 后预填 3840/2160 且行展开；切回 4K 后安全框标签 `3840×2160`。0 pageerror。改动后全局 grep `1920|1080` 应零残留。
