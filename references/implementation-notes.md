@@ -315,3 +315,18 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
    - 回归：修复后 4K（3840×2160）PNG 序列 30 帧全部导出成功、逐帧 hash 唯一、0 pageerror；4K 透明序列 420 帧（14s@30fps）RGBA 导出成功、hash 全唯一、无 pageerror。
    - **教训：导出/渲染竞态类 bug 用 headless 自动化容易误判"无问题"**，必须审代码找竞态窗口（异步取帧 vs 持续渲染）。
 5. **其它被排除的假说（排查过程记录）**：① DPR 放大 buffer（导出 canvas 变 8K）——已排除：renderer 初始化时 `setPixelRatio(1)`（app.js 顶部），导出 setSize(3840,2160) 的 buffer 恰为 4K（headless 实测 PNG 3840×2160）；② toBlob 尺寸错误——实测尺寸正确；③ JSZip 全内存打包 4K 长序列内存爆——真实存在的次生风险（420 帧 4K RGBA ~190MB zip 可完成），但非本症状主因。
+
+## 三十二、给「保存工程」增加弹窗页面（自定义文件名 + 系统另存为自选保存位置）
+
+1. **需求（用户报告）**：原「保存工程」按钮点击即下载 .json（自动名 `axis-switching_工程_时间戳`），无任何选择。用户要求"工程导出也增加一个页面，可以选择保存的位置和保存的名称"——即像「导出动画」弹窗那样给保存工程一个 UI 页面。
+2. **方案**：新增 `#project-save-modal` 弹窗（复用 export-modal 的 .card/.frow/.ebtns 样式，CSS 选择器用 `#export-modal, #project-save-modal` 并列即可），字段：
+   - **文件名**（`#ps-name`，预填 `axis-switching_工程_YYYYMMDD_HHMM`，留空自动命名）；
+   - **保存位置**（`#ps-loc` 只读显示 + `#ps-browse` 按钮）；
+   - 信息行（时长/关键帧数/音频提示）+ 浏览器能力提示（`#ps-fs-note`）。
+3. **保存位置两种实现路径（关键点）**：
+   - **Chromium（Chrome/Edge，FS API 存在）**：`#ps-browse` → `window.showSaveFilePicker({suggestedName, types:[{description, accept:{'application/json':['.json']}}]})` 打开**系统「另存为」对话框**，用户直接选目录/改文件名 → 拿到 `FileSystemFileHandle` → 点「保存工程」时 `handle.createWritable()` → `write(blob)` → `close()`，真正写入用户所选位置。
+   - **降级（Safari/Firefox 等无 showSaveFilePicker）**：`#ps-browse` disabled + 黄色提示"当前浏览器不支持自选保存位置（需 Chrome/Edge），将保存到默认下载目录"，保存走原 `downloadBlob` 到浏览器下载目录（文件名取输入框，自动补 `.json`）。
+   - `FS_SAVE_OK = typeof window.showSaveFilePicker === 'function'` 在**模块加载时求值一次**——测试里事后 `delete window.showSaveFilePicker` 无效（常量已锁定），要模拟"不支持"必须用 `context.addInitScript` 在页面脚本执行**前**删掉。
+   - 浏览器安全策略不暴露完整路径，`#ps-loc` 只能显示最终文件名 `handle.name`（title 里提示已选定文件）。
+4. **状态清理**：`let projectFileHandle = null` 全局保存当前句柄；每次打开弹窗重置为 null（重新选择）；`AbortError`（用户在系统对话框取消）静默返回。保存成功 flashHint 区分"保存到「文件名」"与"浏览器下载目录"。
+5. **验证（Playwright 两 context）**：ctxA（addInitScript 删 showSaveFilePicker 模拟不支持）→ 打开弹窗：fs-note 可见、browse disabled、名称为 `axis-switching_工程_8位日期_4位时间`；填 `我的_自定义_工程名` 保存 → download 事件 suggestedFilename = `我的_自定义_工程名.json` ✓。ctxB（原生 FS OK + stub showSaveFilePicker 返回假 handle）→ fs-note 隐藏、browse enabled；点浏览后 `#ps-loc` = `落地_到_所选目录.json`、suggestedName = 预填名+.json；保存后 handle.write 收到含 `axis-switching-workbench` 标识的完整 JSON、writable close ✓、弹窗关闭 ✓。0 pageerror。
