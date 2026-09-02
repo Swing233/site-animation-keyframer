@@ -261,3 +261,10 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 5. **⚠️ 轴对称场景画面不变陷阱**：射流场景绕竖直轴对称（水柱/圆笼/孔板），视觉中心在对称轴上时相机绕 Y 轴旋转，画面逐像素不变（物理正确，不是 bug）。**不要用 toDataURL 对比断言 camOrbit 生效**——断言相机位置数学或关键帧值；画面断言改为"对称性回归保护"（始终一致 = 相机未损坏）。
 6. **Shift 语义修正**（用户明确澄清）：时间轴按住 Shift = **强制吸附关键帧**（`snapTargetT` 改为 `kfSnapOn || shiftHeld`，开关关时 Shift 临时强制吸附）；选中关键帧按住 Shift 拖动同样吸附；**Shift 精细微调只存在于参数调节面板**（参数柄/数值框 1/10 步进，v2.7 已有，保留）。删除 v2.9 的 `snapFine()`、`drag.startX`、pointermove Shift 精细分支——时间线 Shift 不再精细微调。文案同步（状态栏/帮助/快捷键/按钮 title），注意删除 v2.9「Shift 临时反转」残留。
 7. **Playwright 易错点补充**：① autosave 防抖 600ms，`localStorage` 断言前 `waitForTimeout(1000)`（400ms 读到旧工程 camOrbit undefined）；② `state.keys` 按轨道分组对象 `{trackId:[{t,v,interp}]}` 非数组；③ 拾取模式断言 `#btn-pick-tgt.on` class（body 无 `.picking`）；④ D 测试拖帧后轨道排序变化，用「按 left≈找帧」再拖（`dragShapeTo(p, t, shift, findLeft)`），不写死 index；⑤ beforeunload 自动保存 → 用独立 browser context 隔离 localStorage。
+
+## 二十八、截面扫描框大小可调（scanSize 轨道）要点
+
+1. **需求本质**：截面扫描的白色方框（扫描平面）原本是硬编码常量 `FRAME_SIZE = 46`（mm），用户要求框大小可调、且能打关键帧动画。
+2. **实现**：TRACKS 加 `{ g:'液柱显示', id:'scanSize', label:'扫描框大小', min:10, max:120, lo:5, hi:240, step:1, def:FRAME_SIZE }`。核心是把「白框 4 条边 + 半透明面」从 `scanGroup` 抽成独立子组 `frameGroup`（`scanGroup.add(frameGroup)`），新增 `setScanSize(sizeMm)` 只 `frameGroup.scale.setScalar(sizeMm / FRAME_SIZE)` 整体缩放——**高亮截面（sectionMesh/sectionHalo/sectionLine）加在 scanGroup 上、不进 frameGroup，缩放框时不会连截面一起放大**（截面是物理形状，不可缩放）。`applyAll` 加 `lastScanSize` 守卫 → `jet.setScanSize(v.scanSize)`，框大小随播放头插值/关键帧动画。
+3. **标签定位复用**：抽 `placeScanLabel()`（用 `frameSize/2 + 3` 投影到屏幕，`curScanZ` 记录当前扫描深度），`updateScan` 与 `setScanSize` 都调用——框变大时标签跟着右边缘外移。
+4. **验证（Playwright）**：数值轨道 input 是 `input[data-id="scanSize"]`（**注意是 `data-id` 不是 `data-track`**；seg 枚举轨道才用 `button[data-seg]`）。开扫描点 `button[data-seg="scanOn"][data-v="1"]`；设 scanSize 46→120 画面 50743 px 变化、120→20 60180 px 变化、0 pageerror。
