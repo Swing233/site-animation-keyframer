@@ -342,3 +342,20 @@ agent-browser 的 Chromium 在本机网络下下载会超时失败；用 playwri
 5. `app.js` `currentExportSize()`：自定义分支兜底 + 函数末尾 `return [1920, 1080]` → `[3840, 2160]`（安全框/预览用）。
 
 验证（Playwright Edge headless）：打开导出弹窗 → `exp-res.value === '3840x2160'`、options 无 `1920x1080`；切 custom 后预填 3840/2160 且行展开；切回 4K 后安全框标签 `3840×2160`。0 pageerror。改动后全局 grep `1920|1080` 应零残留。
+
+## 三十四、导出机位 ≠ 预览机位：OrbitControls.update() 无条件 lookAt 覆盖关键帧朝向
+
+1. **症状（用户报告 + 工程实测）**：某工程（`lookAtTarget:false`、rotX/rotY/rotZ 打关键帧）摄像机视角下预览画面正常，但导出（MP4/PNG/透明序列）画面机位朝向明显不对，像"自由视角"。给了工程文件后定位并量化：预览 vs 旧导出朝向差最大 **37.5°**。
+2. **根因（两层叠加）**：
+   - 预览主循环顺序 `controls.update() → applyAll(t) → render`，关键帧最后一次写相机 → 画面正确；
+   - 三条导出渲染循环顺序却是 `applyAll(t,true) → controls.update() → render`——applyAll 先写好关键帧机位，随后 **OrbitControls.update() 无条件执行 `camera.lookAt(controls.target)`**（本仓库 vendor OrbitControls 的 update **没有 enabled 门控**，禁用也照跑）。`lookAtTarget=false` 时 applyAll 把 controls.target 设为 freePivot（自由视角旋转中心），lookAt 直接顶掉 rotX/rotY/rotZ 关键帧朝向 → 导出帧朝自由视角中心看，形似"自由视角"。
+   - 为什么以前没发现：`lookAtTarget=true` 的工程里 applyAll 也 `lookAt(tgt)` 且同时把 controls.target 设成同一 tgt，update 再 lookAt 同一点 → 结果一致，bug 隐形。只有关闭"看向视觉中心"、用 rotX/Y/Z 定朝向的工程才暴露。
+3. **修复（commit 5ca5981）**：
+   - 删掉 frameAccurateExport / recordingExport / PNG 序列三条循环里的 `controls.update()`，导出渲染前最后一次写相机必须是 applyAll（与预览序一致，关键帧即最终机位）。
+   - 顺带修正上上轮 90c8f56 引入的隐患：主循环 gate 改 `if (exporting && !state.exportLive) return;`——口播实时录制（exportLiveVoice）**不自渲染、以主循环为唯一渲染源**，若一并短路会录到冻结首帧；该路径无 toBlob/VideoFrame 捕获，不存在覆写竞态。
+4. **验证方法（headless Edge + 临时 ?dbg=1 钩子暴露 camera/controls/applyAll/renderer）**：
+   - 方向级：逐 t 采样三路（预览序 / 旧导出序 / 新导出序）的相机朝向 → 旧序与预览最大差 37.5°，新序差 ~1.5e-6°（数值级噪声）；position 三路一致（2e-14）。
+   - 像素级：同一 canvas 按三路各渲染一帧取 toDataURL → 预览序与新导出序**逐字节相等**（len 相同、字符串全等），旧导出序画面完全不同（PNG len 17002 vs 83842）。
+   - E2E：真实 UI 导出 PNG 序列 264 帧（640×360@24fps）成功、尺寸正确、首末帧 hash 不同、0 pageerror。
+   - 工程注入技巧：localStorage 注入会被 `beforeunload` 自动保存覆写，**要用真实拖拽导入路径**（DataTransfer+File → dispatch drop），与用户打开工程一致；ES module 顶层函数不进 window，需靠 ?dbg 钩子。
+   - 教训：**同一 canvas 上"谁最后写相机/像素，谁说了算"**——任何在关键帧写相机之后还调 update()/lookAt 的路径都会造成导出≠预览；预览与导出的渲染调用顺序必须一致。
