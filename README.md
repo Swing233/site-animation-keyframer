@@ -7,7 +7,7 @@
 本技能遵循通用 Agent Skills 规范（`SKILL.md` + `assets/` + `references/` 结构），可安装到任何支持 Skills 的 AI 助手或代理工具中。以 Claude Code / Codex 等主流工具的用户级 skills 目录为例：
 
 ```bash
-git clone https://github.com/SwingPigeon/site-animation-keyframer.git ~/.claude/skills/site-animation-keyframer
+git clone https://github.com/Swing233/site-animation-keyframer.git ~/.claude/skills/site-animation-keyframer
 ```
 
 > 兼容所有遵循 Agent Skills 目录规范（按 `<name>/SKILL.md` 发现技能）的客户端，macOS / Windows / Linux 均可。安装后，在对话中提出"复刻网站加时间轴/关键帧动画/导出视频"即自动触发（详见 `SKILL.md` 的触发词与流程）。
@@ -28,10 +28,10 @@ cd ~/.claude/skills/site-animation-keyframer && git pull
 
 | 演示 | 说明 | 在线地址 |
 |---|---|---|
-| 🚿 **Axis Switching 动画工作台** | 水流经非圆孔喷出后形成"锁链状"水柱的物理模拟 → 全参数关键帧动画工作台（时间轴/导出视频/帮助看板） | https://swingpigeon.github.io/axis-switching-workbench/ |
-| 📐 **圆锥曲线动画工作台** | 椭圆/双曲线/抛物线等圆锥曲线参数化动画演示工作台 | https://swingpigeon.github.io/conic-sections-workbench/ |
+| 🚿 **射流轴交换 · Axis Switching 动画工作台** | 水流经非圆孔喷出后形成"锁链状"水柱的物理模拟 → 全参数关键帧动画工作台（时间轴/导出视频/帮助看板） | https://swing233.github.io/axis-switching-workbench/ |
+| 📐 **圆锥曲线动画工作台** | 椭圆/双曲线/抛物线等圆锥曲线参数化动画演示工作台 | https://swing233.github.io/conic-sections-workbench/ |
 
-> 两个演示均由本技能（模板复刻 + 关键帧工作台）制作，可作为"用这个技能能做出什么"的参考；对应技能仓库见 [axis-switching-workbench](https://github.com/SwingPigeon/axis-switching-workbench)。
+> 两个演示均由本技能（模板复刻 + 关键帧工作台）制作，可作为"用这个技能能做出什么"的参考；对应技能仓库见 [axis-switching-workbench](https://github.com/Swing233/axis-switching-workbench)。
 
 ## 目录结构
 
